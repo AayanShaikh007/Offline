@@ -19,7 +19,7 @@ Offline is a sideloaded Android music player that watches playlists and download
    ```
 
 3. In Offline, open **settings → Connect Spotify**, paste the **Client ID**, then sign in in your browser. The app uses PKCE and keeps the session tokens encrypted with Android Keystore.
-4. Paste the link for a playlist you own or collaborate on. Spotify Development Mode restricts track access to those playlists, even when a followed playlist is public. A Spotify link supplies track metadata. Offline looks for the same recording on YouTube and lets you choose a YouTube URL when the match is uncertain.
+4. Paste the link for a public playlist you own or collaborate on. Spotify Development Mode restricts track access to those playlists, even when a followed playlist is public. A Spotify link supplies track metadata. Offline looks for the same recording on YouTube and lets you choose a YouTube URL when the match is uncertain.
 
 YouTube extraction uses [NewPipe Extractor](https://github.com/TeamNewPipe/NewPipeExtractor) and depends on the stream formats YouTube currently makes available. Save audio you have permission to download. Playlist information and audio are stored on the device. The app has no backend or analytics. Disconnecting Spotify clears the Spotify session and tracked Spotify playlists while keeping already saved audio.
 

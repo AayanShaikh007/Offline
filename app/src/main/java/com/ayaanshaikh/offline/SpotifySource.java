@@ -58,7 +58,7 @@ final class SpotifySource {
                 .appendQueryParameter("redirect_uri", REDIRECT).appendQueryParameter("state", state)
                 .appendQueryParameter("code_challenge_method", "S256")
                 .appendQueryParameter("code_challenge", challenge)
-                .appendQueryParameter("scope", "playlist-read-private playlist-read-collaborative").build();
+                .appendQueryParameter("scope", "playlist-read-collaborative").build();
     }
 
     void complete(Uri callback) throws Exception {
@@ -138,7 +138,9 @@ final class SpotifySource {
 
     OfflineStore.Snapshot snapshot(PlaylistLink link) throws Exception {
         String base = API + "/playlists/" + link.id();
-        String name = get(base + "?fields=name").getString("name");
+        JSONObject metadata = get(base + "?fields=name,public");
+        if (!metadata.optBoolean("public", true)) throw new IOException("Spotify playlist must be public.");
+        String name = metadata.getString("name");
         var songs = new ArrayList<OfflineStore.RemoteSong>();
         int offset = 0;
         for (int page = 0; page < 250; page++) {

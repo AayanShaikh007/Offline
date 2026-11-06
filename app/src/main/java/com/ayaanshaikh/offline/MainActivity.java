@@ -279,7 +279,7 @@ public final class MainActivity extends Activity {
         body.addView(actions, cardLayout());
         var playlists = store.playlists();
         if (playlists.isEmpty()) {
-            empty("No sources linked", "Paste a public YouTube or YouTube Music playlist, or a Spotify playlist you own or collaborate on.");
+            empty("No sources linked", "Paste a public YouTube or YouTube Music playlist, or a public Spotify playlist you own or collaborate on.");
         }
         int i = 1;
         for (var entry : playlists) {
