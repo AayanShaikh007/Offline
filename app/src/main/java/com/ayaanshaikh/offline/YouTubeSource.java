@@ -16,6 +16,7 @@ import org.schabi.newpipe.extractor.stream.StreamInfo;
 import org.schabi.newpipe.extractor.stream.StreamInfoItem;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.HttpURLConnection;
@@ -100,7 +101,13 @@ final class YouTubeSource {
         // Recover a fully published file if a previous job ended before indexing it.
         for (String extension : List.of("m4a", "webm")) {
             File file = store.file(id + "." + extension);
-            if (file.isFile() && file.length() > 0) return file.getName();
+            if (!file.isFile()) continue;
+            try (var input = new FileInputStream(file)) {
+                AudioDownload.readHeader(input, file.getName());
+                return file.getName();
+            } catch (IOException ignored) {
+                // A new download can replace the invalid unpublished file.
+            }
         }
         StreamInfo info = StreamInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/watch?v=" + id);
         List<AudioStream> formats = info.getAudioStreams().stream()
@@ -125,8 +132,8 @@ final class YouTubeSource {
             throws IOException {
         File partial = store.file(filename + ".part");
         File complete = store.file(filename);
-        HttpURLConnection connection = Http.open(address);
-        long copied = 0;
+        HttpURLConnection connection = AudioDownload.open(address);
+        long copied;
         try {
             if (connection.getResponseCode() != 200) {
                 throw new IOException("Audio server returned HTTP " + connection.getResponseCode());
@@ -139,6 +146,9 @@ final class YouTubeSource {
                 throw new IOException("Audio server returned a page");
             }
             try (var input = connection.getInputStream(); var output = new FileOutputStream(partial)) {
+                byte[] header = AudioDownload.readHeader(input, filename);
+                output.write(header);
+                copied = header.length;
                 byte[] buffer = new byte[64 * 1024];
                 int count;
                 while ((count = input.read(buffer)) != -1) {
@@ -150,7 +160,7 @@ final class YouTubeSource {
                 output.getFD().sync();
             }
             checkNetwork.run();
-            if (copied == 0 || (expected >= 0 && copied != expected) || !partial.renameTo(complete)) {
+            if ((expected >= 0 && copied != expected) || !partial.renameTo(complete)) {
                 throw new IOException("Audio transfer did not complete");
             }
             return filename;
