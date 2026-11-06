@@ -33,6 +33,8 @@ Use JDK 17 and Android SDK Platform 35.
 
 The debug APK is under `app/build/outputs/apk/debug/`. On Windows, use `gradlew.bat`. Use the same signing key when building an update for an already installed APK.
 
+The unit test task includes Robolectric tests for Android 8 and Android 15 lifecycle and scheduling behavior, plus SQLite storage, input validation, matching, and HTTP response handling. These tests do not require an emulator or Spotify credentials. See [TESTING.md](TESTING.md) for the test report and remaining device checks.
+
 ## Test locally on Windows
 
 ### Test the signed APK on a phone
