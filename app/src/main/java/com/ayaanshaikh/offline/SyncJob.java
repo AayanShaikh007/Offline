@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class SyncJob extends JobService {
     static final long HOUR = 3_600_000L;
@@ -27,12 +28,17 @@ public final class SyncJob extends JobService {
     private static final int IMMEDIATE = 1102;
     private static final ExecutorService WORK = Executors.newSingleThreadExecutor();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
+    private static final AtomicBoolean FOREGROUND_PENDING = new AtomicBoolean();
+    private static final Object FORCE_LOCK = new Object();
     private final Map<JobParameters, Future<?>> jobs = new HashMap<>();
     private static volatile boolean running;
     private static volatile String activity = "";
 
-    static boolean running() { return running; }
-    static String activity() { return activity; }
+    static String status(boolean wifi) {
+        if (running) return activity;
+        if (FOREGROUND_PENDING.get()) return "starting sync";
+        return wifi ? "watching · ~60 min" : "waiting for unmetered Wi-Fi";
+    }
 
     private static SharedPreferences flags(Context c) {
         return c.getSharedPreferences("sync", Context.MODE_PRIVATE);
@@ -60,17 +66,47 @@ public final class SyncJob extends JobService {
         }
     }
 
+    // UI requests start in-process on eligible Wi-Fi. JobScheduler handles deferred work.
     static void request(Context context, boolean force) {
-        if (OfflineStore.get(context).playlists().isEmpty()) return;
-        schedule(context);
-        if (force) flags(context).edit().putBoolean("force", true).apply();
-        enqueue(context, 0);
+        Context app = context.getApplicationContext();
+        if (OfflineStore.get(app).playlists().isEmpty()) return;
+        schedule(app);
+        if (force) {
+            synchronized (FORCE_LOCK) {
+                flags(app).edit().putBoolean("force", true).apply();
+            }
+        }
+        if (!wifi(app)) {
+            enqueue(app, 0);
+            return;
+        }
+        if (!FOREGROUND_PENDING.compareAndSet(false, true)) return;
+        WORK.execute(() -> {
+            FOREGROUND_PENDING.set(false);
+            var manager = app.getSystemService(ConnectivityManager.class);
+            Network network = manager.getActiveNetwork();
+            try {
+                if (!usable(manager, network)) throw new InterruptedSync();
+                boolean more = runOnNetwork(app, manager, network);
+                MAIN.post(() -> scheduleRemaining(app, more));
+            } catch (InterruptedSync e) {
+                MAIN.post(() -> enqueue(app, 0));
+            } catch (RuntimeException e) {
+                OfflineStore.get(app).log("Sync stopped · " + e.getClass().getSimpleName());
+                MAIN.post(() -> enqueue(app, 60_000));
+            }
+        });
     }
 
     private static void enqueue(Context context, long delay) {
+        if (OfflineStore.get(context).playlists().isEmpty()) return;
         JobScheduler scheduler = context.getSystemService(JobScheduler.class);
         if (scheduler.getPendingJob(IMMEDIATE) == null) {
-            scheduler.schedule(job(context, IMMEDIATE).setMinimumLatency(delay).build());
+            JobInfo.Builder work = job(context, IMMEDIATE);
+            if (delay > 0) work.setMinimumLatency(delay);
+            if (scheduler.schedule(work.build()) != JobScheduler.RESULT_SUCCESS) {
+                OfflineStore.get(context).log("Android couldn't schedule background sync · open Offline on Wi-Fi to retry");
+            }
         }
     }
 
@@ -79,7 +115,15 @@ public final class SyncJob extends JobService {
         JobScheduler scheduler = context.getSystemService(JobScheduler.class);
         scheduler.cancel(PERIODIC);
         scheduler.cancel(IMMEDIATE);
-        flags(context).edit().remove("force").apply();
+        takeForce(context);
+    }
+
+    private static boolean takeForce(Context context) {
+        synchronized (FORCE_LOCK) {
+            boolean force = flags(context).getBoolean("force", false);
+            flags(context).edit().remove("force").apply();
+            return force;
+        }
     }
 
     static void onOpen(Context context) {
@@ -115,14 +159,9 @@ public final class SyncJob extends JobService {
             try {
                 var manager = getSystemService(ConnectivityManager.class);
                 Network network = Build.VERSION.SDK_INT >= 28 ? params.getNetwork() : manager.getActiveNetwork();
-                if (network == null) network = manager.getActiveNetwork();
+                if (!usable(manager, network)) network = manager.getActiveNetwork();
                 if (usable(manager, network)) {
-                    Network selected = network;
-                    Http.NETWORK.set(selected);
-                    running = true;
-                    more = runSync(() -> {
-                        if (Thread.currentThread().isInterrupted() || !usable(manager, selected)) throw new InterruptedSync();
-                    });
+                    more = runOnNetwork(this, manager, network);
                 } else {
                     retry = params.getJobId() == IMMEDIATE;
                 }
@@ -132,9 +171,6 @@ public final class SyncJob extends JobService {
                 OfflineStore.get(this).log("Sync stopped · " + e.getClass().getSimpleName());
                 retry = params.getJobId() == IMMEDIATE;
             } finally {
-                Http.NETWORK.remove();
-                running = false;
-                activity = "";
                 boolean reschedule = retry;
                 boolean remaining = more;
                 MAIN.post(() -> complete(params, reschedule, remaining));
@@ -147,15 +183,14 @@ public final class SyncJob extends JobService {
     private void complete(JobParameters params, boolean retry, boolean more) {
         if (jobs.remove(params) == null) return;
         jobFinished(params, retry);
-        if (retry) return;
-        var playlists = OfflineStore.get(this).playlists();
+        if (!retry) MAIN.postDelayed(() -> scheduleRemaining(this, more), 400);
+    }
+
+    private static void scheduleRemaining(Context context, boolean more) {
+        var playlists = OfflineStore.get(context).playlists();
         if (playlists.isEmpty()) return;
-        boolean dueNow = flags(this).getBoolean("force", false) || playlists.stream().anyMatch(p -> p.checked() == 0);
-        if (dueNow || more) {
-            MAIN.postDelayed(() -> {
-                if (!OfflineStore.get(this).playlists().isEmpty()) enqueue(this, dueNow ? 0 : 60_000);
-            }, 400);
-        }
+        boolean dueNow = flags(context).getBoolean("force", false) || playlists.stream().anyMatch(p -> p.checked() == 0);
+        if (dueNow || more) enqueue(context, dueNow ? 0 : 60_000);
     }
 
     @Override public boolean onStopJob(JobParameters params) {
@@ -164,17 +199,28 @@ public final class SyncJob extends JobService {
         return params.getJobId() == IMMEDIATE;
     }
 
-    private boolean runSync(Runnable checkNetwork) {
-        OfflineStore store = OfflineStore.get(this);
-        var playlists = store.playlists();
-        if (playlists.isEmpty()) {
-            flags(this).edit().remove("force").apply();
-            return false;
+    private static boolean runOnNetwork(Context context, ConnectivityManager manager, Network network) {
+        activity = "starting sync";
+        running = true;
+        Http.NETWORK.set(network);
+        try {
+            return runSync(context, () -> {
+                if (Thread.currentThread().isInterrupted() || !usable(manager, network)) throw new InterruptedSync();
+            });
+        } finally {
+            Http.NETWORK.remove();
+            running = false;
+            activity = "";
         }
-        boolean force = flags(this).getBoolean("force", false);
-        flags(this).edit().remove("force").apply();
+    }
+
+    private static boolean runSync(Context context, Runnable checkNetwork) {
+        OfflineStore store = OfflineStore.get(context);
+        boolean force = takeForce(context);
+        var playlists = store.playlists();
+        if (playlists.isEmpty()) return false;
         var youtube = new YouTubeSource();
-        var spotify = new SpotifySource(this);
+        var spotify = new SpotifySource(context);
         long end = SystemClock.elapsedRealtime() + 6 * 60_000L;
         store.reconcileAudio();
         boolean refreshed = false;
@@ -197,7 +243,7 @@ public final class SyncJob extends JobService {
                 refreshed = true;
             } catch (Exception e) {
                 checkNetwork.run();
-                String problem = fromSpotify ? safeSpotifyError(e) : "YouTube playlist unavailable";
+                String problem = fromSpotify ? safeSpotifyError(e) : "YouTube playlist · " + youtubeProblem(e);
                 store.playlistError(link, problem);
                 store.log(link.source() + " · " + problem);
             }
@@ -231,11 +277,29 @@ public final class SyncJob extends JobService {
             } catch (Exception e) {
                 checkNetwork.run();
                 store.failed(song, video, "retry queued", false);
-                store.log("Download or match will retry · " + song.title());
+                store.log("Retry queued · " + song.title() + " · " + youtubeProblem(e));
             }
         }
         if (refreshed || saved > 0) store.log("Sync finished · " + saved + " saved");
         return !store.queue().isEmpty();
+    }
+
+    private static String youtubeProblem(Exception error) {
+        Throwable cause = error;
+        for (int depth = 0; cause != null && depth < 8; depth++, cause = cause.getCause()) {
+            if (cause instanceof java.net.SocketTimeoutException) return "connection timed out";
+            if (cause instanceof java.net.UnknownHostException) return "could not reach the server";
+            if (cause instanceof javax.net.ssl.SSLException) return "secure connection failed";
+            if (cause instanceof org.schabi.newpipe.extractor.exceptions.ReCaptchaException) return "YouTube rate limited the request";
+            String message = cause.getMessage();
+            if (cause instanceof java.io.IOException && message != null
+                    && (message.matches("Audio server returned HTTP [0-9]{3}")
+                    || message.equals("Audio server returned a page")
+                    || message.equals("Untrusted audio server")
+                    || message.equals("No supported audio stream")
+                    || message.equals("Audio response does not match its container format"))) return message;
+        }
+        return "request failed (" + error.getClass().getSimpleName() + ")";
     }
 
     private static String safeSpotifyError(Exception e) {
