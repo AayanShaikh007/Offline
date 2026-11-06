@@ -21,6 +21,8 @@ android {
 
 dependencies {
     implementation 'com.github.TeamNewPipe:NewPipeExtractor:v0.26.5'
+    // Override the extractor's transitive version to include the XML parser resource-consumption fix.
+    implementation 'org.jsoup:jsoup:1.24.1'
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
     testImplementation 'junit:junit:4.13.2'
 }
