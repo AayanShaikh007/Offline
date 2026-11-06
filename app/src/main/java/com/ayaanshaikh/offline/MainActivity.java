@@ -2,11 +2,11 @@ package com.ayaanshaikh.offline;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
-import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -24,7 +24,6 @@ import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -56,15 +55,15 @@ public final class MainActivity extends Activity {
     private Page page = Page.SOURCES;
     private OfflineStore.Playlist selected;
     private Object rendered;
-    private TextView network, pulse, nowTitle, nowInfo, play, downloadLabel;
-    private LinearLayout body, tabs, player, downloadRow;
+    private TextView network, pulse, downloadLabel;
+    private LinearLayout body, tabs, downloadRow;
+    private GlassPlayer player, expandedPlayer;
+    private Dialog nowPlaying;
     private DownloadRing downloadRing;
     private SyncJob.DownloadProgress renderedDownload;
     private ScrollView scroll;
-    private SeekBar seek;
     private PlaybackService playback;
     private boolean bound;
-    private boolean dragging;
     private int trackPage;
 
     private final ServiceConnection playerConnection = new ServiceConnection() {
@@ -132,6 +131,11 @@ public final class MainActivity extends Activity {
         bound = false;
         playback = null;
         super.onStop();
+    }
+
+    @Override protected void onDestroy() {
+        if (nowPlaying != null) nowPlaying.dismiss();
+        super.onDestroy();
     }
 
     @Override protected void onNewIntent(Intent intent) {
@@ -203,8 +207,11 @@ public final class MainActivity extends Activity {
         scroll.addView(body);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
-        player = createPlayer();
-        root.addView(player);
+        player = new GlassPlayer(this, () -> playback, false, this::showNowPlaying);
+        player.setVisibility(View.GONE);
+        var playerLayout = new LinearLayout.LayoutParams(-1, -2);
+        playerLayout.setMargins(dp(12), dp(4), dp(12), dp(8));
+        root.addView(player, playerLayout);
         root.addView(rule());
         tabs = row();
         tabs.setPadding(dp(8), dp(4), dp(8), dp(4));
@@ -490,66 +497,49 @@ public final class MainActivity extends Activity {
         body.addView(panel, cardLayout());
     }
 
-    private LinearLayout createPlayer() {
-        LinearLayout shell = column();
-        shell.setBackgroundColor(PANEL);
-        shell.setPadding(dp(14), dp(5), dp(14), 0);
-        LinearLayout controls = row();
-        LinearLayout info = column();
-        nowTitle = label("", 14, GREEN, true);
-        nowTitle.setMaxLines(1);
-        nowTitle.setEllipsize(TextUtils.TruncateAt.END);
-        nowInfo = label("", 11, MUTED, false);
-        nowInfo.setMaxLines(1);
-        nowInfo.setEllipsize(TextUtils.TruncateAt.END);
-        info.addView(nowTitle);
-        info.addView(nowInfo);
-        controls.addView(info, weighted());
-        var previous = button("‹‹", false, () -> { if (playback != null) playback.previous(); });
-        previous.setContentDescription("Previous track");
-        controls.addView(previous);
-        play = button("▶", true, () -> { if (playback != null) playback.toggle(); });
-        controls.addView(play);
-        var next = button("››", false, () -> { if (playback != null) playback.next(); });
-        next.setContentDescription("Next track");
-        controls.addView(next);
-        shell.addView(controls);
-        seek = new SeekBar(this);
-        seek.setProgressTintList(ColorStateList.valueOf(GREEN));
-        seek.setThumbTintList(ColorStateList.valueOf(GREEN));
-        seek.setContentDescription("Playback position");
-        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar bar, int progress, boolean user) {
-                if (user && playback != null && !dragging) playback.seek(progress);
-            }
-            @Override public void onStartTrackingTouch(SeekBar bar) { dragging = true; }
-            @Override public void onStopTrackingTouch(SeekBar bar) {
-                dragging = false;
-                if (playback != null) playback.seek(bar.getProgress());
-            }
+    private void showNowPlaying() {
+        if (nowPlaying != null || playback == null) return;
+        var state = playback.now();
+        if (state.file().isEmpty() && state.error().isEmpty()) return;
+
+        Dialog dialog = new Dialog(this, R.style.OfflinePlayerSheet);
+        GlassPlayer sheet = new GlassPlayer(this, () -> playback, true, dialog::dismiss);
+        ScrollView content = new ScrollView(this);
+        content.setFillViewport(true);
+        content.addView(sheet, new ScrollView.LayoutParams(-1, -2));
+        dialog.setContentView(content);
+        dialog.setCanceledOnTouchOutside(true);
+        dialog.setOnDismissListener(ignored -> {
+            nowPlaying = null;
+            expandedPlayer = null;
         });
-        shell.addView(seek, new LinearLayout.LayoutParams(-1, dp(28)));
-        shell.setVisibility(View.GONE);
-        return shell;
+        nowPlaying = dialog;
+        expandedPlayer = sheet;
+        sheet.render(state);
+
+        var window = dialog.getWindow();
+        window.setBackgroundDrawable(GlassPlayer.surface(this));
+        window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+        window.setDimAmount(.45f);
+        window.setGravity(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        var attributes = window.getAttributes();
+        attributes.y = dp(12);
+        window.setAttributes(attributes);
+        window.setLayout(dp(Math.min(480, getResources().getConfiguration().screenWidthDp - 24)), -2);
+        if (android.os.Build.VERSION.SDK_INT >= 31) window.setBackgroundBlurRadius(dp(24));
+        dialog.show();
     }
 
     private void updatePlayer() {
         var state = playback == null ? null : playback.now();
         if (state == null || (state.file().isEmpty() && state.error().isEmpty())) {
             player.setVisibility(View.GONE);
+            if (nowPlaying != null) nowPlaying.dismiss();
             return;
         }
         player.setVisibility(View.VISIBLE);
-        nowTitle.setText(state.title().isEmpty() ? "Playback error" : state.title());
-        nowInfo.setText(!state.error().isEmpty() ? state.error()
-                : elapsed(state.position()) + " / " + elapsed(state.duration()) + "  " + state.artist());
-        play.setText(state.playing() ? "Ⅱ" : "▶");
-        play.setContentDescription(state.playing() ? "Pause" : "Play");
-        seek.setEnabled(state.ready());
-        if (!dragging) {
-            seek.setMax(Math.max(1, state.duration()));
-            seek.setProgress(state.position());
-        }
+        player.render(state);
+        if (expandedPlayer != null) expandedPlayer.render(state);
     }
 
     private void addPlaylist() {
@@ -651,11 +641,6 @@ public final class MainActivity extends Activity {
     }
 
     private String when(long millis) { return millis == 0 ? "pending" : time.format(new Date(millis)); }
-    private String elapsed(int millis) {
-        int seconds = millis / 1000;
-        return String.format(Locale.ROOT, "%d:%02d", seconds / 60, seconds % 60);
-    }
-
     private void toast(String message) { Toast.makeText(this, message, Toast.LENGTH_SHORT).show(); }
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     private LinearLayout column() {
