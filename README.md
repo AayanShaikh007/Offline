@@ -33,4 +33,38 @@ Use JDK 17 and Android SDK Platform 35.
 
 The debug APK is under `app/build/outputs/apk/debug/`. On Windows, use `gradlew.bat`. Use the same signing key when building an update for an already installed APK.
 
+## Test locally on Windows
+
+### Test the signed APK on a phone
+
+1. Install [Android SDK Platform Tools](https://developer.android.com/tools/releases/platform-tools) or use the copy installed by Android Studio.
+2. Enable **USB debugging** under **Developer options**, connect the unlocked phone with a USB data cable, and approve the computer on the phone.
+3. Download the signed APK to **Downloads**. Run these commands in PowerShell, adjusting the paths if needed. If you downloaded Platform Tools separately, point `$adb` to the extracted `adb.exe`.
+
+   ```powershell
+   $adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
+   & $adb devices
+   & $adb -d install -r "$env:USERPROFILE\Downloads\Offline-0.1.3.apk"
+   ```
+
+   The phone should appear as `device`. The signed APK can update an earlier release signed with the same key and keep its data. Leave Play Protect enabled and stop if it blocks the install.
+
+### Build and test changes from source
+
+Open the repository in Android Studio and install **Android SDK Platform 35** in **SDK Manager**. Create and start an Android 15 or newer virtual device in **Device Manager**, then select it and press **Run**. Use an emulator for the debug build if your phone already has the signed release, since Android checks that an in-place update uses the same signing key.
+
+For a command-line build, set `JAVA_HOME` to JDK 17 and `ANDROID_HOME` to your Android SDK directory. From the repository root in PowerShell, run:
+
+```powershell
+.\gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+```
+
+### Verify a download
+
+1. Open Offline and check the version below the app name. Start on unmetered Wi-Fi.
+2. Add a small public YouTube or YouTube Music playlist containing audio you have permission to save, or open one you already track. Tap **Sync now**.
+3. Watch the sync card on **Sources** or on the playlist page. While a track is transferring, the ring shows a percentage if the server provides a size. It spins if the size is unknown. The playlist's **available offline** count increases when a track finishes.
+4. Open **Vault** and confirm the track appears. Enable airplane mode, then play that track from Vault to verify playback without a connection.
+5. If a track fails, open **Logs** and note the latest retry or error. If the app crashes, collect the Android crash log with `& $adb logcat -b crash -d` in PowerShell.
+
 Source is available under GPL-3.0-or-later. See [LICENSE](LICENSE).
