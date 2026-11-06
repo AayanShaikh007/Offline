@@ -61,17 +61,33 @@ public final class SyncJob extends JobService {
     }
 
     static void request(Context context, boolean force) {
+        if (OfflineStore.get(context).playlists().isEmpty()) return;
+        schedule(context);
         if (force) flags(context).edit().putBoolean("force", true).apply();
+        enqueue(context, 0);
+    }
+
+    private static void enqueue(Context context, long delay) {
         JobScheduler scheduler = context.getSystemService(JobScheduler.class);
         if (scheduler.getPendingJob(IMMEDIATE) == null) {
-            scheduler.schedule(job(context, IMMEDIATE).build());
+            scheduler.schedule(job(context, IMMEDIATE).setMinimumLatency(delay).build());
         }
     }
 
+    static void cancelIfEmpty(Context context) {
+        if (!OfflineStore.get(context).playlists().isEmpty()) return;
+        JobScheduler scheduler = context.getSystemService(JobScheduler.class);
+        scheduler.cancel(PERIODIC);
+        scheduler.cancel(IMMEDIATE);
+        flags(context).edit().remove("force").apply();
+    }
+
     static void onOpen(Context context) {
+        var playlists = OfflineStore.get(context).playlists();
+        if (playlists.isEmpty()) return;
         schedule(context);
         long now = System.currentTimeMillis();
-        for (var playlist : OfflineStore.get(context).playlists()) {
+        for (var playlist : playlists) {
             if (playlist.checked() == 0 || now - playlist.checked() >= HOUR) {
                 request(context, false);
                 return;
@@ -95,6 +111,7 @@ public final class SyncJob extends JobService {
     @Override public boolean onStartJob(JobParameters params) {
         Future<?> work = WORK.submit(() -> {
             boolean retry = false;
+            boolean more = false;
             try {
                 var manager = getSystemService(ConnectivityManager.class);
                 Network network = Build.VERSION.SDK_INT >= 28 ? params.getNetwork() : manager.getActiveNetwork();
@@ -103,7 +120,7 @@ public final class SyncJob extends JobService {
                     Network selected = network;
                     Http.NETWORK.set(selected);
                     running = true;
-                    runSync(() -> {
+                    more = runSync(() -> {
                         if (Thread.currentThread().isInterrupted() || !usable(manager, selected)) throw new InterruptedSync();
                     });
                 } else {
@@ -119,18 +136,25 @@ public final class SyncJob extends JobService {
                 running = false;
                 activity = "";
                 boolean reschedule = retry;
-                MAIN.post(() -> complete(params, reschedule));
+                boolean remaining = more;
+                MAIN.post(() -> complete(params, reschedule, remaining));
             }
         });
         jobs.put(params, work);
         return true;
     }
 
-    private void complete(JobParameters params, boolean retry) {
+    private void complete(JobParameters params, boolean retry, boolean more) {
         if (jobs.remove(params) == null) return;
         jobFinished(params, retry);
-        if (!retry && flags(this).getBoolean("force", false)) {
-            MAIN.postDelayed(() -> request(this, false), 400);
+        if (retry) return;
+        var playlists = OfflineStore.get(this).playlists();
+        if (playlists.isEmpty()) return;
+        boolean dueNow = flags(this).getBoolean("force", false) || playlists.stream().anyMatch(p -> p.checked() == 0);
+        if (dueNow || more) {
+            MAIN.postDelayed(() -> {
+                if (!OfflineStore.get(this).playlists().isEmpty()) enqueue(this, dueNow ? 0 : 60_000);
+            }, 400);
         }
     }
 
@@ -140,12 +164,12 @@ public final class SyncJob extends JobService {
         return params.getJobId() == IMMEDIATE;
     }
 
-    private void runSync(Runnable checkNetwork) {
+    private boolean runSync(Runnable checkNetwork) {
         OfflineStore store = OfflineStore.get(this);
         var playlists = store.playlists();
         if (playlists.isEmpty()) {
             flags(this).edit().remove("force").apply();
-            return;
+            return false;
         }
         boolean force = flags(this).getBoolean("force", false);
         flags(this).edit().remove("force").apply();
@@ -211,6 +235,7 @@ public final class SyncJob extends JobService {
             }
         }
         if (refreshed || saved > 0) store.log("Sync finished · " + saved + " saved");
+        return !store.queue().isEmpty();
     }
 
     private static String safeSpotifyError(Exception e) {

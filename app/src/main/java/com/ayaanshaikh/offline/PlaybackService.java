@@ -223,6 +223,7 @@ public final class PlaybackService extends Service {
             }
             if (audio.requestAudioFocus(focus) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
                 player.start();
+                error = "";
                 publish();
                 return;
             }
@@ -250,6 +251,8 @@ public final class PlaybackService extends Service {
         pause(false);
     }
 
+    // Media-session notifications are exempt from Android's notification permission.
+    @android.annotation.SuppressLint("NotificationPermission")
     private void publish() {
         Now state = now();
         int playback = !state.error().isEmpty() ? PlaybackState.STATE_ERROR : state.playing()

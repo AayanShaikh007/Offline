@@ -45,6 +45,8 @@ public final class MainActivity extends Activity {
     private static final int AMBER = Color.rgb(248, 197, 113);
     private static final ExecutorService ACCOUNT_IO = Executors.newSingleThreadExecutor();
 
+    private static final int TRACK_PAGE_SIZE = 60;
+
     private enum Page { SOURCES, VAULT, LOG, SETTINGS }
 
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -61,6 +63,7 @@ public final class MainActivity extends Activity {
     private PlaybackService playback;
     private boolean bound;
     private boolean dragging;
+    private int trackPage;
 
     private final ServiceConnection playerConnection = new ServiceConnection() {
         @Override public void onServiceConnected(ComponentName name, IBinder binder) {
@@ -198,6 +201,7 @@ public final class MainActivity extends Activity {
     private void selectPage(Page target, OfflineStore.Playlist playlist) {
         page = target;
         selected = playlist;
+        trackPage = 0;
         rendered = null;
         tabs.removeAllViews();
         nav("01 / sources", Page.SOURCES);
@@ -301,16 +305,42 @@ public final class MainActivity extends Activity {
         actions.addView(button("− untrack", false, this::untrack), weighted());
         body.addView(actions, cardLayout());
         if (songs.isEmpty()) empty("Awaiting playlist", "Use sync now on the sources page, or wait for unmetered Wi-Fi.");
-        int number = 1;
-        for (var song : songs) trackRow(song, number++);
+        tracks(songs);
     }
 
     private void vault() {
         var library = store.library();
         heading("02 / STORAGE", "~/vault", library.size() + " saved tracks · ready without a network");
         if (library.isEmpty()) empty("No local audio yet", "Tracks appear here as their downloads finish.");
-        int number = 1;
-        for (var song : library) trackRow(song, number++);
+        tracks(library);
+    }
+
+    private void tracks(List<OfflineStore.Song> songs) {
+        if (songs.isEmpty()) return;
+        int pages = (songs.size() + TRACK_PAGE_SIZE - 1) / TRACK_PAGE_SIZE;
+        trackPage = Math.min(trackPage, pages - 1);
+        int start = trackPage * TRACK_PAGE_SIZE;
+        int end = Math.min(start + TRACK_PAGE_SIZE, songs.size());
+        for (int i = start; i < end; i++) trackRow(songs.get(i), i + 1);
+        if (pages == 1) return;
+        var controls = row();
+        var earlier = button("‹ previous", false, () -> changeTrackPage(-1));
+        earlier.setEnabled(trackPage > 0);
+        if (!earlier.isEnabled()) earlier.setAlpha(.4f);
+        controls.addView(earlier, weighted());
+        var count = label((trackPage + 1) + " / " + pages, 11, MUTED, true);
+        controls.addView(count);
+        var later = button("next ›", false, () -> changeTrackPage(1));
+        later.setEnabled(trackPage + 1 < pages);
+        if (!later.isEnabled()) later.setAlpha(.4f);
+        controls.addView(later, weighted());
+        body.addView(controls);
+    }
+
+    private void changeTrackPage(int direction) {
+        trackPage += direction;
+        updateBody(true);
+        scroll.scrollTo(0, 0);
     }
 
     private void trackRow(OfflineStore.Song song, int number) {
@@ -485,6 +515,7 @@ public final class MainActivity extends Activity {
                 .setMessage("Saved audio stays in your vault.")
                 .setNegativeButton("Cancel", null).setPositiveButton("Untrack", (dialog, which) -> {
                     store.remove(playlist.link());
+                    SyncJob.cancelIfEmpty(this);
                     selectPage(Page.SOURCES, null);
                 }).show();
     }
@@ -494,7 +525,7 @@ public final class MainActivity extends Activity {
                 | InputType.TYPE_TEXT_VARIATION_URI, value -> {
             String video = PlaylistLink.videoId(value);
             if (video == null) throw new IllegalArgumentException("Paste a valid YouTube video URL");
-            store.setMatch(song, video);
+            if (!store.setMatch(song, video)) throw new IllegalStateException("This match has already changed.");
             SyncJob.request(this, false);
             updateBody(true);
         });
@@ -511,6 +542,7 @@ public final class MainActivity extends Activity {
                 .setMessage("Your Spotify playlists are removed from Offline. Saved audio stays in your vault.")
                 .setNegativeButton("Cancel", null).setPositiveButton("Disconnect", (dialog, which) -> {
                     spotify.disconnect(store);
+                    SyncJob.cancelIfEmpty(this);
                     updateBody(true);
                 }).show();
     }
