@@ -160,14 +160,14 @@ final class OfflineStore extends SQLiteOpenHelper {
         }
     }
 
-    void setMatch(Song song, String video) {
+    boolean setMatch(Song song, String video) {
         ContentValues values = new ContentValues();
         values.put("video", video);
         values.put("status", "queued");
         values.put("attempts", 0);
         values.put("retry_at", 0);
-        getWritableDatabase().update("songs", values, "playlist=? AND key=?",
-                new String[]{song.playlist(), song.key()});
+        return getWritableDatabase().update("songs", values, "playlist=? AND key=? AND active=1 AND video IS NULL",
+                new String[]{song.playlist(), song.key()}) > 0;
     }
 
     void failed(Song song, String video, String status, boolean waitForMatch) {

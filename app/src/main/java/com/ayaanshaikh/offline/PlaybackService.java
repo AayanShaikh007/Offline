@@ -216,20 +216,20 @@ public final class PlaybackService extends Service {
         if (player == null) return;
         playWhenReady = true;
         if (!ready) return;
-        if (audio.requestAudioFocus(focus) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-            playWhenReady = false;
-            publish();
-            return;
-        }
         try {
-            startForeground(NOTIFICATION, notification());
-            foreground = true;
-            player.start();
+            if (!foreground) {
+                startForeground(NOTIFICATION, notification());
+                foreground = true;
+            }
+            if (audio.requestAudioFocus(focus) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                player.start();
+                publish();
+                return;
+            }
         } catch (IllegalStateException e) {
-            playWhenReady = false;
-            audio.abandonAudioFocusRequest(focus);
+            error = "Open Offline to resume playback.";
         }
-        publish();
+        pause(false);
     }
 
     private void pause(boolean keepFocus) {
@@ -237,7 +237,7 @@ public final class PlaybackService extends Service {
         resumeOnFocus = false;
         if (ready && player.isPlaying()) player.pause();
         if (!keepFocus) audio.abandonAudioFocusRequest(focus);
-        if (foreground) {
+        if (foreground && !keepFocus) {
             stopForeground(STOP_FOREGROUND_DETACH);
             foreground = false;
         }

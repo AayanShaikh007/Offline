@@ -197,7 +197,7 @@ public final class SyncJob extends JobService {
                         store.log("Needs a YouTube match · " + song.title());
                         continue;
                     }
-                    store.setMatch(song, video);
+                    if (!store.setMatch(song, video)) continue;
                 }
                 if (store.hasAudio(video)) continue;
                 activity = "saving " + song.title();

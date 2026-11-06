@@ -20,9 +20,11 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.stream.Collectors;
 
 final class YouTubeSource {
     private static boolean initialized;
@@ -42,7 +44,9 @@ final class YouTubeSource {
         var visited = new HashSet<String>();
         for (Page page = info.getNextPage(); Page.isValid(page); ) {
             if (Thread.currentThread().isInterrupted()) throw new IOException("Sync interrupted");
-            if (!visited.add(page.getUrl() + ":" + page.getId()) || visited.size() > 100) {
+            byte[] body = page.getBody();
+            String continuation = body == null ? page.getId() : Base64.getEncoder().encodeToString(body);
+            if (!visited.add(page.getUrl() + ":" + continuation) || visited.size() > 100) {
                 throw new IOException("Playlist pagination did not finish");
             }
             var next = PlaylistInfo.getMoreItems(ServiceList.YouTube, info.getUrl(), page);
@@ -104,7 +108,7 @@ final class YouTubeSource {
                         && audio.getFormat() != null
                         && List.of("m4a", "webm").contains(audio.getFormat().getSuffix()))
                 .sorted(Comparator.comparingInt(AudioStream::getAverageBitrate).reversed())
-                .limit(5).toList();
+                .limit(5).collect(Collectors.toList());
         IOException failure = new IOException("No supported audio stream");
         for (AudioStream audio : formats) {
             checkNetwork.run();

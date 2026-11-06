@@ -2,7 +2,7 @@ package com.ayaanshaikh.offline;
 
 import java.net.URI;
 import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
+import java.io.UnsupportedEncodingException;
 
 record PlaylistLink(String source, String id) {
     static final String YOUTUBE = "youtube";
@@ -24,13 +24,13 @@ record PlaylistLink(String source, String id) {
             } else if (isYouTube(host) && uri.getRawQuery() != null) {
                 for (String field : uri.getRawQuery().split("&")) {
                     if (!field.startsWith("list=")) continue;
-                    String id = URLDecoder.decode(field.substring(5), StandardCharsets.UTF_8);
+                    String id = URLDecoder.decode(field.substring(5), "UTF-8");
                     if (id.matches("[a-zA-Z0-9_-]{8,128}") && !id.startsWith("RD")) {
                         return new PlaylistLink(YOUTUBE, id);
                     }
                 }
             }
-        } catch (IllegalArgumentException ignored) {
+        } catch (IllegalArgumentException | UnsupportedEncodingException ignored) {
             // Use one actionable message for malformed and unsupported links.
         }
         throw new IllegalArgumentException("Paste a Spotify or public YouTube playlist URL.");

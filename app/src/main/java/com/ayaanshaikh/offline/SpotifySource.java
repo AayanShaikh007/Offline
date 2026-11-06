@@ -63,7 +63,7 @@ final class SpotifySource {
 
     void complete(Uri callback) throws Exception {
         if (!"com.ayaanshaikh.offline".equals(callback.getScheme()) || !"spotify".equals(callback.getHost())
-                || !"/callback".equals(callback.getPath())) return;
+                || !"/callback".equals(callback.getPath())) throw new IOException("Invalid Spotify callback");
         String client;
         String verifier;
         String state;
@@ -82,7 +82,7 @@ final class SpotifySource {
         JSONObject tokens = request(TOKEN_URL, null, Map.of("grant_type", "authorization_code",
                 "client_id", client, "code", code, "redirect_uri", REDIRECT, "code_verifier", verifier));
         synchronized (ACCOUNT_LOCK) {
-            if (!state.equals(account.getString("state", ""))) return;
+            if (!state.equals(account.getString("state", ""))) throw new IOException("Spotify sign-in was superseded");
             save(tokens, client, "", random(24));
             account.edit().remove("state").remove("pendingClient").remove("started").commit();
         }
