@@ -174,7 +174,10 @@ public final class MainActivity extends Activity {
         header.setPadding(dp(18), dp(6), dp(12), dp(4));
         TextView brand = label(">_ OFFLINE", 19, GREEN, true);
         brand.setLetterSpacing(.10f);
-        header.addView(brand, weighted());
+        LinearLayout identity = column();
+        identity.addView(brand);
+        identity.addView(label("v" + BuildConfig.VERSION_NAME, 11, MUTED, false));
+        header.addView(identity, weighted());
         network = label("", 11, GREEN, true);
         header.addView(network);
         header.addView(button("⚙", false, () -> selectPage(Page.SETTINGS, null)));
@@ -225,8 +228,7 @@ public final class MainActivity extends Activity {
         network.setText(wifi ? "● WI-FI" : "○ OFFLINE");
         network.setTextColor(wifi ? GREEN : MUTED);
         if (pulse != null) {
-            String state = SyncJob.running() ? SyncJob.activity() : wifi ? "watching · ~60 min" : "waiting for unmetered Wi-Fi";
-            pulse.setText("sys.status  " + state);
+            pulse.setText("sys.status  " + SyncJob.status(wifi));
         }
     }
 
@@ -287,7 +289,8 @@ public final class MainActivity extends Activity {
             tile.addView(label(String.format(Locale.ROOT, "%02d  /  %s", i++, entry.link().source().toUpperCase(Locale.ROOT)),
                     11, GREEN, true));
             tile.addView(label(entry.title(), 17, INK, true));
-            String statusText = entry.status().equals("synced") ? "last check " + when(entry.checked()) : entry.status();
+            String statusText = entry.checked() == 0 ? "awaiting first sync"
+                    : entry.status().equals("synced") ? "last check " + when(entry.checked()) : entry.status();
             tile.addView(label(statusText + "   ›", 12, MUTED, false));
             click(tile, () -> selectPage(Page.SOURCES, entry));
             body.addView(tile, cardLayout());
@@ -295,16 +298,24 @@ public final class MainActivity extends Activity {
     }
 
     private void playlist() {
-        heading("01 / " + selected.link().source().toUpperCase(Locale.ROOT), selected.title(), selected.status());
+        String status = selected.checked() == 0 ? "Awaiting first sync" : selected.status();
+        heading("01 / " + selected.link().source().toUpperCase(Locale.ROOT), selected.title(), status);
         var songs = store.songs(selected.link().key());
         long saved = songs.stream().filter(s -> s.file() != null).count();
-        body.addView(label(saved + " / " + songs.size() + " available offline", 12, GREEN, true), cardLayout());
+        if (selected.checked() != 0) {
+            body.addView(label(saved + " / " + songs.size() + " available offline", 12, GREEN, true), cardLayout());
+        }
         LinearLayout actions = row();
         actions.addView(button("← sources", false, () -> selectPage(Page.SOURCES, null)), weighted());
         actions.addView(button("↗ original", false, () -> launch(Uri.parse(selected.link().url()))), weighted());
         actions.addView(button("− untrack", false, this::untrack), weighted());
         body.addView(actions, cardLayout());
-        if (songs.isEmpty()) empty("Awaiting playlist", "Use sync now on the sources page, or wait for unmetered Wi-Fi.");
+        pulse = label("", 12, MUTED, false);
+        body.addView(pulse, cardLayout());
+        body.addView(button("↻ sync now", true, this::syncNow), cardLayout());
+        if (songs.isEmpty() && "synced".equals(selected.status())) {
+            empty("No tracks found", "This playlist returned no available tracks.");
+        }
         tracks(songs);
     }
 
@@ -504,7 +515,7 @@ public final class MainActivity extends Activity {
                     if (PlaylistLink.SPOTIFY.equals(link.source()) && !spotify.connected()) {
                         toast("Playlist added. Connect Spotify in Settings.");
                     } else {
-                        toast("Playlist queued for Wi-Fi sync");
+                        toast(SyncJob.wifi(this) ? "Starting playlist sync" : "Waiting for unmetered Wi-Fi");
                     }
                 });
     }
@@ -548,8 +559,13 @@ public final class MainActivity extends Activity {
     }
 
     private void syncNow() {
+        if (store.playlists().isEmpty()) {
+            toast("Add a playlist first");
+            return;
+        }
         SyncJob.request(this, true);
-        toast(SyncJob.wifi(this) ? "Sync requested" : "Sync queued for Wi-Fi");
+        updateChrome();
+        toast(SyncJob.wifi(this) ? "Starting sync" : "Waiting for unmetered Wi-Fi");
     }
 
     private void playSong(OfflineStore.Song song) {
