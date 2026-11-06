@@ -177,8 +177,10 @@ final class OfflineStore extends SQLiteOpenHelper {
         values.put("status", status);
         values.put("attempts", attempts);
         values.put("retry_at", waitForMatch ? Long.MAX_VALUE : System.currentTimeMillis() + delay);
-        getWritableDatabase().update("songs", values, "playlist=? AND key=? AND video IS ?",
-                new String[]{song.playlist(), song.key(), video});
+        String where = "playlist=? AND key=? AND video " + (video == null ? "IS NULL" : "=?");
+        String[] selection = video == null ? new String[]{song.playlist(), song.key()}
+                : new String[]{song.playlist(), song.key(), video};
+        getWritableDatabase().update("songs", values, where, selection);
     }
 
     void retry() {

@@ -9,5 +9,8 @@
         android:icon="@drawable/ic_offline"
         android:label="Offline"
         android:theme="@android:style/Theme.Material.NoActionBar"
-        android:usesCleartextTraffic="false" />
+        android:usesCleartextTraffic="false">
+        <service android:name=".SyncJob" android:exported="true"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+    </application>
 </manifest>
