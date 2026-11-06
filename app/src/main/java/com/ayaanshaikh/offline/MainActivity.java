@@ -56,8 +56,10 @@ public final class MainActivity extends Activity {
     private Page page = Page.SOURCES;
     private OfflineStore.Playlist selected;
     private Object rendered;
-    private TextView network, pulse, nowTitle, nowInfo, play;
-    private LinearLayout body, tabs, player;
+    private TextView network, pulse, nowTitle, nowInfo, play, downloadLabel;
+    private LinearLayout body, tabs, player, downloadRow;
+    private DownloadRing downloadRing;
+    private SyncJob.DownloadProgress renderedDownload;
     private ScrollView scroll;
     private SeekBar seek;
     private PlaybackService playback;
@@ -81,6 +83,13 @@ public final class MainActivity extends Activity {
             updateBody(false);
             updatePlayer();
             main.postDelayed(this, 1400);
+        }
+    };
+
+    private final Runnable downloadTick = new Runnable() {
+        @Override public void run() {
+            updateDownload();
+            main.postDelayed(this, 300);
         }
     };
 
@@ -113,10 +122,12 @@ public final class MainActivity extends Activity {
         bound = bindService(new Intent(this, PlaybackService.class), playerConnection, Context.BIND_AUTO_CREATE);
         SyncJob.onOpen(this);
         main.post(tick);
+        main.post(downloadTick);
     }
 
     @Override protected void onStop() {
         main.removeCallbacks(tick);
+        main.removeCallbacks(downloadTick);
         if (bound) unbindService(playerConnection);
         bound = false;
         playback = null;
@@ -255,6 +266,8 @@ public final class MainActivity extends Activity {
         rendered = state;
         body.removeAllViews();
         pulse = null;
+        downloadRow = null;
+        renderedDownload = null;
         switch (page) {
             case SOURCES -> {
                 if (selected == null) sources();
@@ -265,6 +278,36 @@ public final class MainActivity extends Activity {
             case SETTINGS -> settings();
         }
         updateChrome();
+        updateDownload();
+    }
+
+    private void addDownloadIndicator(LinearLayout parent) {
+        downloadRow = row();
+        downloadRow.setPadding(0, dp(8), 0, 0);
+        downloadRing = new DownloadRing(this, GREEN, LINE);
+        downloadRing.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        downloadRow.addView(downloadRing, new LinearLayout.LayoutParams(dp(28), dp(28)));
+        downloadLabel = label("", 12, INK, false);
+        downloadLabel.setPadding(dp(10), 0, 0, 0);
+        downloadLabel.setMaxLines(2);
+        downloadLabel.setEllipsize(TextUtils.TruncateAt.END);
+        downloadRow.addView(downloadLabel, weighted());
+        downloadRow.setVisibility(View.GONE);
+        parent.addView(downloadRow);
+    }
+
+    private void updateDownload() {
+        if (downloadRow == null) return;
+        var progress = SyncJob.downloadProgress();
+        if (java.util.Objects.equals(progress, renderedDownload)) return;
+        renderedDownload = progress;
+        downloadRow.setVisibility(progress == null ? View.GONE : View.VISIBLE);
+        if (progress == null) return;
+        int percent = progress.percent();
+        downloadRing.setProgress(percent);
+        String amount = percent >= 0 ? percent + "%" : progress.received() > 0
+                ? android.text.format.Formatter.formatShortFileSize(this, progress.received()) : "Connecting…";
+        downloadLabel.setText(String.format(Locale.ROOT, "%s · %s", amount, progress.title()));
     }
 
     private void sources() {
@@ -274,6 +317,7 @@ public final class MainActivity extends Activity {
         pulse = label("", 12, MUTED, false);
         pulse.setMaxLines(2);
         status.addView(pulse);
+        addDownloadIndicator(status);
         body.addView(status, cardLayout());
         LinearLayout actions = row();
         actions.addView(button("+ add playlist", true, this::addPlaylist), weighted());
@@ -310,8 +354,11 @@ public final class MainActivity extends Activity {
         actions.addView(button("↗ original", false, () -> launch(Uri.parse(selected.link().url()))), weighted());
         actions.addView(button("− untrack", false, this::untrack), weighted());
         body.addView(actions, cardLayout());
+        LinearLayout syncStatus = card();
         pulse = label("", 12, MUTED, false);
-        body.addView(pulse, cardLayout());
+        syncStatus.addView(pulse);
+        addDownloadIndicator(syncStatus);
+        body.addView(syncStatus, cardLayout());
         body.addView(button("↻ sync now", true, this::syncNow), cardLayout());
         if (songs.isEmpty() && "synced".equals(selected.status())) {
             empty("No tracks found", "This playlist returned no available tracks.");

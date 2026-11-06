@@ -95,7 +95,11 @@ final class YouTubeSource {
         return tied ? null : best;
     }
 
-    String save(String id, OfflineStore store, Runnable checkNetwork) throws Exception {
+    interface Progress {
+        void update(long received, long total);
+    }
+
+    String save(String id, OfflineStore store, Runnable checkNetwork, Progress progress) throws Exception {
         initialize();
         store.ensureAudioDir();
         // Recover a fully published file if a previous job ended before indexing it.
@@ -119,8 +123,9 @@ final class YouTubeSource {
         IOException failure = new IOException("No supported audio stream");
         for (AudioStream audio : formats) {
             checkNetwork.run();
+            progress.update(0, -1);
             try {
-                return download(id + "." + audio.getFormat().getSuffix(), audio.getContent(), store, checkNetwork);
+                return download(id + "." + audio.getFormat().getSuffix(), audio.getContent(), store, checkNetwork, progress);
             } catch (IOException e) {
                 failure = e;
             }
@@ -128,8 +133,8 @@ final class YouTubeSource {
         throw failure;
     }
 
-    private static String download(String filename, String address, OfflineStore store, Runnable checkNetwork)
-            throws IOException {
+    private static String download(String filename, String address, OfflineStore store, Runnable checkNetwork,
+                                   Progress progress) throws IOException {
         File partial = store.file(filename + ".part");
         File complete = store.file(filename);
         HttpURLConnection connection = AudioDownload.open(address);
@@ -145,10 +150,12 @@ final class YouTubeSource {
             if (contentType != null && (contentType.startsWith("text/") || contentType.contains("json"))) {
                 throw new IOException("Audio server returned a page");
             }
+            progress.update(0, expected);
             try (var input = connection.getInputStream(); var output = new FileOutputStream(partial)) {
                 byte[] header = AudioDownload.readHeader(input, filename);
                 output.write(header);
                 copied = header.length;
+                progress.update(copied, expected);
                 byte[] buffer = new byte[64 * 1024];
                 int count;
                 while ((count = input.read(buffer)) != -1) {
@@ -156,6 +163,7 @@ final class YouTubeSource {
                     copied += count;
                     if (copied > limit) throw new IOException("Audio file exceeds 150 MB");
                     output.write(buffer, 0, count);
+                    progress.update(copied, expected);
                 }
                 output.getFD().sync();
             }

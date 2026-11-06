@@ -33,6 +33,15 @@ public final class SyncJob extends JobService {
     private final Map<JobParameters, Future<?>> jobs = new HashMap<>();
     private static volatile boolean running;
     private static volatile String activity = "";
+    private static volatile DownloadProgress downloadProgress;
+
+    record DownloadProgress(String title, long received, long total) {
+        int percent() {
+            return total > 0 ? (int) Math.min(100, received * 100 / total) : -1;
+        }
+    }
+
+    static DownloadProgress downloadProgress() { return downloadProgress; }
 
     static String status(boolean wifi) {
         if (running) return activity;
@@ -270,14 +279,18 @@ public final class SyncJob extends JobService {
                     if (!store.setMatch(song, video)) continue;
                 }
                 if (store.hasAudio(video)) continue;
-                activity = "saving " + song.title();
-                String file = youtube.save(video, store, checkNetwork);
+                activity = "downloading audio";
+                downloadProgress = new DownloadProgress(song.title(), 0, -1);
+                String file = youtube.save(video, store, checkNetwork, (received, total) ->
+                        downloadProgress = new DownloadProgress(song.title(), received, total));
                 store.saved(song, video, file);
                 saved++;
             } catch (Exception e) {
                 checkNetwork.run();
                 store.failed(song, video, "retry queued", false);
                 store.log("Retry queued · " + song.title() + " · " + youtubeProblem(e));
+            } finally {
+                downloadProgress = null;
             }
         }
         if (refreshed || saved > 0) store.log("Sync finished · " + saved + " saved");
