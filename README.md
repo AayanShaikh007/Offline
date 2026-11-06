@@ -44,7 +44,7 @@ The debug APK is under `app/build/outputs/apk/debug/`. On Windows, use `gradlew.
    ```powershell
    $adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
    & $adb devices
-   & $adb -d install -r "$env:USERPROFILE\Downloads\Offline-0.1.3.apk"
+   & $adb -d install -r "$env:USERPROFILE\Downloads\Offline-0.1.4.apk"
    ```
 
    The phone should appear as `device`. The signed APK can update an earlier release signed with the same key and keep its data. Leave Play Protect enabled and stop if it blocks the install.
