@@ -17,9 +17,10 @@ import org.schabi.newpipe.extractor.stream.StreamInfoItem;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
@@ -95,11 +96,8 @@ final class YouTubeSource {
         return tied ? null : best;
     }
 
-    interface Progress {
-        void update(long received, long total);
-    }
-
-    String save(String id, OfflineStore store, Runnable checkNetwork, Progress progress) throws Exception {
+    String save(String id, OfflineStore store, Runnable checkNetwork, AudioDownload.Progress progress)
+            throws Exception {
         initialize();
         store.ensureAudioDir();
         // Recover a fully published file if a previous job ended before indexing it.
@@ -125,7 +123,8 @@ final class YouTubeSource {
             checkNetwork.run();
             progress.update(0, -1);
             try {
-                return download(id + "." + audio.getFormat().getSuffix(), audio.getContent(), store, checkNetwork, progress);
+                File complete = store.file(id + "." + audio.getFormat().getSuffix());
+                return AudioDownload.save(AudioDownload.open(audio.getContent()), complete, checkNetwork, progress);
             } catch (IOException e) {
                 failure = e;
             }
@@ -133,55 +132,11 @@ final class YouTubeSource {
         throw failure;
     }
 
-    private static String download(String filename, String address, OfflineStore store, Runnable checkNetwork,
-                                   Progress progress) throws IOException {
-        File partial = store.file(filename + ".part");
-        File complete = store.file(filename);
-        HttpURLConnection connection = AudioDownload.open(address);
-        long copied;
-        try {
-            if (connection.getResponseCode() != 200) {
-                throw new IOException("Audio server returned HTTP " + connection.getResponseCode());
-            }
-            long expected = connection.getContentLengthLong();
-            long limit = 150L * 1024 * 1024;
-            if (expected > limit) throw new IOException("Audio file exceeds 150 MB");
-            String contentType = connection.getContentType();
-            if (contentType != null && (contentType.startsWith("text/") || contentType.contains("json"))) {
-                throw new IOException("Audio server returned a page");
-            }
-            progress.update(0, expected);
-            try (var input = connection.getInputStream(); var output = new FileOutputStream(partial)) {
-                byte[] header = AudioDownload.readHeader(input, filename);
-                output.write(header);
-                copied = header.length;
-                progress.update(copied, expected);
-                byte[] buffer = new byte[64 * 1024];
-                int count;
-                while ((count = input.read(buffer)) != -1) {
-                    checkNetwork.run();
-                    copied += count;
-                    if (copied > limit) throw new IOException("Audio file exceeds 150 MB");
-                    output.write(buffer, 0, count);
-                    progress.update(copied, expected);
-                }
-                output.getFD().sync();
-            }
-            checkNetwork.run();
-            if ((expected >= 0 && copied != expected) || !partial.renameTo(complete)) {
-                throw new IOException("Audio transfer did not complete");
-            }
-            return filename;
-        } finally {
-            connection.disconnect();
-            partial.delete();
-        }
-    }
-
     private static final class YouTubeDownloader extends Downloader {
         @Override public Response execute(Request request) throws IOException, ReCaptchaException {
-            HttpURLConnection connection = Http.open(request.url());
+            HttpURLConnection connection = null;
             try {
+                connection = Http.open(request.url());
                 connection.setRequestMethod(request.httpMethod());
                 for (var header : request.headers().entrySet()) {
                     for (String value : header.getValue()) connection.addRequestProperty(header.getKey(), value);
@@ -196,8 +151,11 @@ final class YouTubeSource {
                         status < 400 ? connection.getInputStream() : connection.getErrorStream());
                 return new Response(status, connection.getResponseMessage(), connection.getHeaderFields(),
                         body, connection.getURL().toString());
+            } catch (UnknownHostException e) {
+                URL endpoint = connection == null ? new URL(request.url()) : connection.getURL();
+                throw new Http.DnsFailure(endpoint, e);
             } finally {
-                connection.disconnect();
+                if (connection != null) connection.disconnect();
             }
         }
     }
