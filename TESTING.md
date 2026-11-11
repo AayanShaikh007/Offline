@@ -78,3 +78,5 @@ The debug build, **40 tests (0 failures, 0 skipped)**, and lint completed succes
 Added `.github/workflows/android.yml` to run wrapper validation, SDK/build-tool setup, and the documented build/test/lint tasks for PRs and pushes to `main`. The job retains available test/lint diagnostics on failure and uploads a debug APK only after successful checks. Artifacts expire after seven days; CI does not sign release updates or run live-service/device tests.
 
 Validation before publication: actionlint 1.7.12 reported no errors, and a fresh local test execution passed all 40 cases (0 failures/skips), with debug build and lint successful. Hosted runner results and downloadable artifacts are recorded in GitHub Actions for each commit; this local check is not a claim about a hosted run.
+
+The first [hosted Android checks run](https://github.com/AayanShaikh007/Offline/actions/runs/43030307614) completed successfully on `e740b54`, including clean-runner wrapper validation, JDK/SDK setup, build/test/lint, and both artifact uploads. This hosted run validates CI execution, not live downloads or device playback.
