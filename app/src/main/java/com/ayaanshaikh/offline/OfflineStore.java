@@ -124,10 +124,11 @@ final class OfflineStore extends SQLiteOpenHelper {
         return querySongs("WHERE s.playlist=? AND s.active=1 ORDER BY s.position", new String[]{playlist});
     }
 
-    List<Song> queue() {
+    List<Song> queue(boolean force) {
+        long cutoff = force ? Long.MAX_VALUE : System.currentTimeMillis();
         return querySongs("WHERE s.active=1 AND a.file IS NULL AND s.retry_at<=? "
                         + "AND s.status<>'match needed' ORDER BY s.attempts,s.position",
-                new String[]{Long.toString(System.currentTimeMillis())});
+                new String[]{Long.toString(cutoff)});
     }
 
     private List<Song> querySongs(String clause, String[] arguments) {

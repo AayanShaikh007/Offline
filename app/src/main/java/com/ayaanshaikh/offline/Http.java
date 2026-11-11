@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 
 final class Http {
@@ -20,6 +21,12 @@ final class Http {
         conn.setConnectTimeout(12_000);
         conn.setReadTimeout(15_000);
         return conn;
+    }
+
+    static final class DnsFailure extends IOException {
+        DnsFailure(URL endpoint, UnknownHostException cause) {
+            super("DNS lookup failed for " + endpoint.getHost(), cause);
+        }
     }
 
     static String read(InputStream stream) throws IOException {

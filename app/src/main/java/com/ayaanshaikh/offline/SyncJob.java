@@ -259,7 +259,7 @@ public final class SyncJob extends JobService {
         }
         int saved = 0;
         int attempted = 0;
-        for (var song : store.queue()) {
+        for (var song : store.queue(force)) {
             checkNetwork.run();
             if (SystemClock.elapsedRealtime() >= end || attempted >= 30) break;
             if (!store.isActive(song)) continue;
@@ -293,13 +293,16 @@ public final class SyncJob extends JobService {
                 downloadProgress = null;
             }
         }
-        if (refreshed || saved > 0) store.log("Sync finished · " + saved + " saved");
-        return !store.queue().isEmpty();
+        if (refreshed || attempted > 0) {
+            store.log("Sync finished · " + saved + " saved · " + attempted + " attempted");
+        }
+        return !store.queue(false).isEmpty();
     }
 
     private static String youtubeProblem(Exception error) {
         Throwable cause = error;
         for (int depth = 0; cause != null && depth < 8; depth++, cause = cause.getCause()) {
+            if (cause instanceof Http.DnsFailure) return cause.getMessage();
             if (cause instanceof java.net.SocketTimeoutException) return "connection timed out";
             if (cause instanceof java.net.UnknownHostException) return "could not reach the server";
             if (cause instanceof javax.net.ssl.SSLException) return "secure connection failed";

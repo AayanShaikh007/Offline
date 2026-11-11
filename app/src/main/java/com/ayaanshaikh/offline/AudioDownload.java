@@ -1,24 +1,33 @@
 package com.ayaanshaikh.offline;
 
 import java.io.DataInputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.UnknownHostException;
 import java.util.Locale;
 
 final class AudioDownload {
     private static final int MAX_REDIRECTS = 4;
     private static final int HEADER_LENGTH = 12;
+    private static final long MAX_BYTES = 150L * 1024 * 1024;
+
+    interface Progress {
+        void update(long received, long total);
+    }
 
     static HttpURLConnection open(String address) throws IOException {
         URL url = new URL(address);
         for (int redirects = 0; ; redirects++) {
             if (!isTrustedUrl(url)) throw new IOException("Untrusted audio server");
-            HttpURLConnection connection = Http.open(url.toExternalForm());
-            connection.setInstanceFollowRedirects(false);
+            HttpURLConnection connection = null;
             boolean keep = false;
             try {
+                connection = Http.open(url.toExternalForm());
+                connection.setInstanceFollowRedirects(false);
                 int code = connection.getResponseCode();
                 if (code != 301 && code != 302 && code != 303 && code != 307 && code != 308) {
                     keep = true;
@@ -29,9 +38,57 @@ final class AudioDownload {
                     throw new IOException("Invalid audio redirect");
                 }
                 url = new URL(url, location);
+            } catch (UnknownHostException e) {
+                throw new Http.DnsFailure(url, e);
             } finally {
-                if (!keep) connection.disconnect();
+                if (!keep && connection != null) connection.disconnect();
             }
+        }
+    }
+
+    static String save(HttpURLConnection connection, File complete, Runnable checkNetwork,
+                       Progress progress) throws IOException {
+        String filename = complete.getName();
+        File partial = new File(complete.getParentFile(), filename + ".part");
+        try {
+            int code = connection.getResponseCode();
+            if (code != 200) throw new IOException("Audio server returned HTTP " + code);
+            long expected = connection.getContentLengthLong();
+            if (expected > MAX_BYTES) throw new IOException("Audio file exceeds 150 MB");
+            String contentType = connection.getContentType();
+            if (contentType != null && (contentType.startsWith("text/") || contentType.contains("json"))) {
+                throw new IOException("Audio server returned a page");
+            }
+
+            progress.update(0, expected);
+            long copied;
+            try (var input = connection.getInputStream(); var output = new FileOutputStream(partial)) {
+                byte[] header = readHeader(input, filename);
+                checkNetwork.run();
+                output.write(header);
+                copied = header.length;
+                progress.update(copied, expected);
+                byte[] buffer = new byte[64 * 1024];
+                int count;
+                while ((count = input.read(buffer)) != -1) {
+                    checkNetwork.run();
+                    copied += count;
+                    if (copied > MAX_BYTES) throw new IOException("Audio file exceeds 150 MB");
+                    output.write(buffer, 0, count);
+                    progress.update(copied, expected);
+                }
+                output.getFD().sync();
+            }
+            checkNetwork.run();
+            if ((expected >= 0 && copied != expected) || !partial.renameTo(complete)) {
+                throw new IOException("Audio transfer did not complete");
+            }
+            return filename;
+        } catch (UnknownHostException e) {
+            throw new Http.DnsFailure(connection.getURL(), e);
+        } finally {
+            connection.disconnect();
+            partial.delete();
         }
     }
 
