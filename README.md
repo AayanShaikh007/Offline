@@ -70,3 +70,7 @@ For a command-line build, set `JAVA_HOME` to JDK 17 and `ANDROID_HOME` to your A
 5. If a track fails, open **Logs** and note the latest retry or error. If the app crashes, collect the Android crash log with `& $adb logcat -b crash -d` in PowerShell.
 
 Source is available under GPL-3.0-or-later. See [LICENSE](LICENSE).
+
+## Ongoing maintenance
+
+See [MAINTENANCE.md](MAINTENANCE.md) for the daily improvement backlog, working process, completed work, and checks that need external setup. Report bugs through GitHub Issues so scheduled maintenance can find them reliably.
