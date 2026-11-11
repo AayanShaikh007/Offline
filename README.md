@@ -1,6 +1,37 @@
 # Offline
 
-Offline is a sideloaded Android music player that watches playlists and downloads new tracks on unmetered Wi-Fi. Its terminal interface shows tracked sources, a local audio vault, and a sync log.
+Offline is an Android music app being developed to bring YouTube Music, Spotify, and eventually SoundCloud into one place. The goal is a music library with background audio playback, a local collection for offline listening, and playlists that stay up to date automatically.
+
+The intended use is everyday music listening on a phone, including listening without a connection after permitted audio has been saved. The visual direction combines a terminal-inspired library with a glassmorphism mini-player and an expandable Now Playing screen.
+
+## Project direction
+
+- A unified library for tracks and playlists from supported sources.
+- Music-focused browsing and search, with song lists and playback queues.
+- Audio-only playback in the background to reduce data use.
+- Offline listening with download progress, retries, and storage controls.
+- Automatic playlist checks and downloads of new tracks on unmetered Wi-Fi, with a manual sync option.
+- Spotify playlist integration, with SoundCloud support as a later goal.
+
+These are the product goals. Provider support and playback reliability are still being developed.
+
+## Current prototype and planned integrations
+
+| Source or feature | Current status | Planned work |
+| --- | --- | --- |
+| YouTube and YouTube Music | Public playlist links, audio extraction through NewPipe Extractor, and a local download pipeline are implemented. Stream availability and real-device reliability need ongoing testing. | Improve reliability, music browsing, search, and playlist synchronization. |
+| Spotify | Public playlists owned by or shared with the signed-in user can supply track metadata through configured Spotify OAuth. This metadata is used to look for matching audio on YouTube. | Improve account setup and playlist matching. Evaluate additional library support, including Liked Songs. |
+| SoundCloud | Planned. | Evaluate a source integration for browsing, playlists, and supported playback. |
+| Player interface | Terminal-style library and sync screens are implemented. A glassmorphism mini-player and expanded Now Playing sheet are available in a draft pull request. | Integrate the player design and refine the listening experience. |
+| Offline library | Local audio indexing, playback, download progress, and retry handling are implemented. | Continue testing interrupted transfers, automatic refresh, and background behavior. |
+
+Spotify metadata integration and playback of Spotify audio involve different capabilities. The current prototype does not provide native Spotify audio downloads.
+
+## Reusing existing projects
+
+Offline aims to build on suitable existing code instead of recreating mature media components. It currently uses NewPipe Extractor. Grayjay, its source plugins, and other relevant projects are being evaluated for integration or reuse. A Grayjay-based implementation remains an architectural option.
+
+Any adopted components must fit the app's requirements and their respective licenses. Upstream attribution and notices must be preserved. Source integrations should be replaceable so that a platform change can be addressed within the affected provider.
 
 ## Use the app
 
