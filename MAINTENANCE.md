@@ -2,6 +2,8 @@
 
 This is the durable to-do list for the daily Offline maintenance task. The owner authorized ongoing bug investigation, tested improvements, GitHub pushes, and pull requests on 2026-11-11. Routine work does not need a new request each day.
 
+A ChatGPT coding automation is enabled daily at approximately 08:00 America/Toronto, beginning 2026-11-11. The scheduler lives in ChatGPT; this document is its persistent backlog, not a standalone GitHub cron job.
+
 ## Daily working loop
 
 1. Read this file, repository instructions, the latest available user feedback, open GitHub issues, and open pull requests. Prioritize concrete user-reported bugs. Never assume access to unrelated chats; a GitHub issue is the durable place for new reports.
@@ -51,5 +53,8 @@ Mark these blocked when setup is unavailable and continue independent items inst
 ### 2026-11-11 — initialize autonomous maintenance
 
 - Created the prioritized backlog and daily working loop.
-- Prepared the previously tested fixes for GitHub publication at the owner's request.
-- Next: inspect current remote work, reconcile these fixes with main, and prioritize reported issues or controlled download tests.
+- Published the previously tested fixes on `fix/android-regression-testing` at the owner's request.
+- Merged current `main` while preserving version 0.1.4, manual-sync retries, DNS diagnostics, and newer audio-transfer tests. Adapted regression coverage to `queue(boolean force)` and checked that manual sync bypasses backoff without retrying unresolved matches.
+- Enabled the recurring coding task for approximately 08:00 America/Toronto.
+- Integration validation: debug build and lint succeeded; 40 tests passed with no failures or skips. See `TESTING.md` for the distinction between this check and the historical emulator pass.
+- Next: review incoming reports and the pending player PR, then choose an evidence-backed item from the reliability backlog.

@@ -66,3 +66,9 @@ The VM took roughly 4.5 minutes to boot and its System UI repeatedly timed out u
 Robolectric runs Android behavior on the JVM; it does not establish real audio decoding, background-service survival, or external service availability. The VM uses generated AAC fixtures to exercise local playback; fixture playback does not prove a YouTube download succeeded.
 
 Live YouTube extraction and downloads were not verified end to end. Full Spotify authorization, refresh, account switching, API permission/rate-limit behavior, and live playlist access require a Spotify developer app and authorized account. No Spotify credentials were provided. Real-device checks remain appropriate for Bluetooth/headset removal, phone-call audio focus, notification controls, OEM battery policies, network transitions during transfers, low-storage behavior, process death, and long multi-batch syncs. Download redirect handling and full transfer interruption are reviewed but not exercised against a controlled media server by these automated tests.
+
+## Integration verification — 2026-11-11
+
+Merged current `main` at `880ec1a` into the fixes branch, preserving version 0.1.4 and its manual-sync retry, DNS, and audio-transfer changes. Updated the storage regression tests for `queue(boolean force)` and verified that forced sync bypasses retry backoff while continuing to exclude unresolved manual matches.
+
+The debug build, **40 tests (0 failures, 0 skipped)**, and lint completed successfully using JDK 17 and SDK 35. This is a fresh build/test/lint check; the Android VM screenshots above remain the historical 2026-11-06 test of version 0.1.3. The VM pass was not repeated during this scheduling/publication update.

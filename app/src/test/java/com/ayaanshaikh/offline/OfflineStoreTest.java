@@ -39,12 +39,12 @@ public class OfflineStoreTest {
         snapshot(first, second);
         snapshot(second);
         assertEquals("Second", store.songs(link.key()).get(0).title());
-        assertEquals(1, store.queue().size());
+        assertEquals(1, store.queue(false).size());
         snapshot(second, first);
         assertEquals("First", store.songs(link.key()).get(1).title());
         snapshot();
         assertTrue(store.songs(link.key()).isEmpty());
-        assertTrue(store.queue().isEmpty());
+        assertTrue(store.queue(false).isEmpty());
     }
     @Test public void untrackingKeepsAudioAndRejectsLateSnapshots() throws Exception {
         snapshot(first);
@@ -52,7 +52,7 @@ public class OfflineStoreTest {
         store.ensureAudioDir();
         assertTrue(store.file("abcdefghijk.m4a").createNewFile());
         store.saved(song, first.video(), "abcdefghijk.m4a");
-        assertTrue(store.queue().isEmpty());
+        assertTrue(store.queue(false).isEmpty());
         store.remove(link);
         assertEquals(1, store.library().size());
         assertEquals(0, store.snapshot(link, new OfflineStore.Snapshot("late", List.of(first))));
@@ -63,7 +63,7 @@ public class OfflineStoreTest {
         store.saved(store.songs(link.key()).get(0), first.video(), "missing.m4a");
         store.reconcileAudio();
         assertTrue(store.library().isEmpty());
-        assertEquals(1, store.queue().size());
+        assertEquals(1, store.queue(false).size());
     }
     @Test public void retryResetsBackoffButPreservesManualMatchRequests() {
         var spotify = new PlaylistLink(PlaylistLink.SPOTIFY, "1a2b3c4d5e6f7g8h9i0j12");
@@ -74,13 +74,16 @@ public class OfflineStoreTest {
         store.failed(unmatched, null, "match needed", true);
         snapshot(first);
         store.failed(store.songs(link.key()).get(0), first.video(), "retry queued", false);
-        assertTrue(store.queue().isEmpty());
+        assertTrue(store.queue(false).isEmpty());
+        // Manual sync bypasses backoff, but must not retry unresolved matches.
+        assertEquals(1, store.queue(true).size());
+        assertEquals(first.video(), store.queue(true).get(0).video());
         store.retry();
-        assertEquals(1, store.queue().size());
+        assertEquals(1, store.queue(false).size());
         assertEquals("match needed", store.songs(spotify.key()).get(0).status());
         assertTrue(store.setMatch(unmatched, first.video()));
         assertFalse(store.setMatch(unmatched, second.video()));
-        assertEquals(2, store.queue().size());
+        assertEquals(2, store.queue(false).size());
     }
     @Test public void disconnectRemovesOnlySpotifySourcesAndRetainsVault() {
         store.add(new PlaylistLink(PlaylistLink.SPOTIFY, "1a2b3c4d5e6f7g8h9i0j12"));
