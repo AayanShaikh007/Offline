@@ -24,7 +24,7 @@ A ChatGPT coding automation is enabled daily at approximately 08:00 America/Toro
 - [ ] Exercise process death and interrupted sync recovery; confirm published audio, the database index, and retry state remain consistent.
 - [ ] Verify Wi-Fi loss/reconnection, metered networks, low storage, low battery, and continuation of a queue larger than one sync batch.
 - [ ] Extend native playback coverage for corrupt/missing files, rapid track changes, audio-focus loss, headset removal, notification actions, and returning to the app.
-- [ ] Add reproducible build/test CI if an equivalent workflow is not already present. Use least required permissions and avoid duplicate workflows.
+- [x] Add reproducible build/test CI: `.github/workflows/android.yml` validates PRs and `main` with JDK 17/SDK 35, publishes test/lint diagnostics, and provides a debug APK after successful checks. Actual hosted results are tracked by each workflow run.
 
 ## Priority 2 — features, usability, and compatibility
 
@@ -60,3 +60,12 @@ Mark these blocked when setup is unavailable and continue independent items inst
 - Enabled the recurring coding task for approximately 08:00 America/Toronto; broadened it at the owner's request to advance the project through features and other useful work even without new bug reports.
 - Integration validation: debug build and lint succeeded; 40 tests passed with no failures or skips. See `TESTING.md` for the distinction between this check and the historical emulator pass.
 - Next: review incoming reports and the pending player PR, then choose an evidence-backed item from the reliability backlog.
+
+### 2026-11-11 — automatic pull request validation
+
+- Triage: no open bug issues or PR feedback were reported, and the repository had no GitHub Actions workflows or runs. PR #1 still contains the separate glass-player UI work; this increment changes CI/documentation only and extends maintenance PR #2.
+- Added Android CI for pull requests, pushes to `main`, and manual dispatch. The job validates the Gradle wrapper, installs SDK 35/build tools 35.0.0, uses JDK 17, and runs debug build, unit/Robolectric tests, and lint.
+- Added seven-day test/lint report artifacts (including failure diagnostics when present) and a debug APK artifact after successful checks. Actions are pinned to inspected release commits; the token has read-only repository access and PR cache access is read-only.
+- Validation: actionlint 1.7.12 passed; a fresh local run completed all 40 tests with 0 failures/skips, debug build, and lint. Hosted execution is tracked by the Android checks status on PR #2; local validation alone does not establish a hosted pass.
+- No new emulator run is needed for this CI-only change; live-service and native-device gaps remain open.
+- Next: inspect the first hosted CI result, then add redirect-chain tests and recovery tests for interrupted sync; continue to check new owner reports before selecting work.

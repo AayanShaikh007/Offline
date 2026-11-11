@@ -72,3 +72,9 @@ Live YouTube extraction and downloads were not verified end to end. Full Spotify
 Merged current `main` at `880ec1a` into the fixes branch, preserving version 0.1.4 and its manual-sync retry, DNS, and audio-transfer changes. Updated the storage regression tests for `queue(boolean force)` and verified that forced sync bypasses retry backoff while continuing to exclude unresolved manual matches.
 
 The debug build, **40 tests (0 failures, 0 skipped)**, and lint completed successfully using JDK 17 and SDK 35. This is a fresh build/test/lint check; the Android VM screenshots above remain the historical 2026-11-06 test of version 0.1.3. The VM pass was not repeated during this scheduling/publication update.
+
+## Automatic CI — 2026-11-11
+
+Added `.github/workflows/android.yml` to run wrapper validation, SDK/build-tool setup, and the documented build/test/lint tasks for PRs and pushes to `main`. The job retains available test/lint diagnostics on failure and uploads a debug APK only after successful checks. Artifacts expire after seven days; CI does not sign release updates or run live-service/device tests.
+
+Validation before publication: actionlint 1.7.12 reported no errors, and a fresh local test execution passed all 40 cases (0 failures/skips), with debug build and lint successful. Hosted runner results and downloadable artifacts are recorded in GitHub Actions for each commit; this local check is not a claim about a hosted run.
