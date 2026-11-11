@@ -8,7 +8,7 @@ A ChatGPT coding automation is enabled daily at approximately 08:00 America/Toro
 
 1. Read this file, repository instructions, the latest available user feedback, open GitHub issues, and open pull requests. Prioritize concrete user-reported bugs. Never assume access to unrelated chats; a GitHub issue is the durable place for new reports.
 2. Fetch current branches and inspect pending work before editing. Preserve other contributors' changes. Reuse an existing maintenance PR when it concerns the same work; avoid duplicate fixes or accumulating overlapping PRs.
-3. Reproduce the highest-priority actionable bug. If no bug is reproducible, choose a useful item below based on evidence. Split large work into reviewable increments and carry unfinished work forward.
+3. Advance the project on every run where useful work is possible. Reproduce the highest-priority actionable bug first. Otherwise proactively choose a valuable feature, UX/accessibility improvement, performance/reliability change, test, tooling improvement, or documentation that removes a real blocker. Do not stop just because there are no new bug reports. Explain the benefit, split large work into reviewable increments, and carry unfinished work forward.
 4. Implement and run checks appropriate to the change. The normal Android checks are `./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug` using JDK 17 and Android SDK Platform 35. Run emulator checks when available and relevant. Never report unexecuted checks as passed.
 5. Update this backlog with findings, completion evidence, blockers, and the next concrete step. Push a focused branch and create or update a pull request containing the problem, change, validation, and limitations. Keep unverified implementation work in a draft PR. Do not automatically merge, publish releases, change credentials, or delete user data.
 6. Report completed work and PR links. If nothing justified a change, explain what was checked; do not invent a bug or manufacture a cosmetic change to meet a daily quota.
@@ -26,7 +26,9 @@ A ChatGPT coding automation is enabled daily at approximately 08:00 America/Toro
 - [ ] Extend native playback coverage for corrupt/missing files, rapid track changes, audio-focus loss, headset removal, notification actions, and returning to the app.
 - [ ] Add reproducible build/test CI if an equivalent workflow is not already present. Use least required permissions and avoid duplicate workflows.
 
-## Priority 2 — usability and compatibility
+## Priority 2 — features, usability, and compatibility
+
+- [ ] Identify and implement the next valuable feature consistent with offline playlist tracking and playback, using owner feedback and observed friction to prioritize it. Expand the roadmap as needs become clear.
 
 - [ ] Check small screens, large font sizes, rotation/recreation, accessibility labels, long titles, empty/error states, and large-playlist pagination.
 - [ ] Review remaining lint warnings individually; preserve deliberately synchronous account-state persistence unless a tested alternative is appropriate.
@@ -55,6 +57,6 @@ Mark these blocked when setup is unavailable and continue independent items inst
 - Created the prioritized backlog and daily working loop.
 - Published the previously tested fixes on `fix/android-regression-testing` at the owner's request.
 - Merged current `main` while preserving version 0.1.4, manual-sync retries, DNS diagnostics, and newer audio-transfer tests. Adapted regression coverage to `queue(boolean force)` and checked that manual sync bypasses backoff without retrying unresolved matches.
-- Enabled the recurring coding task for approximately 08:00 America/Toronto.
+- Enabled the recurring coding task for approximately 08:00 America/Toronto; broadened it at the owner's request to advance the project through features and other useful work even without new bug reports.
 - Integration validation: debug build and lint succeeded; 40 tests passed with no failures or skips. See `TESTING.md` for the distinction between this check and the historical emulator pass.
 - Next: review incoming reports and the pending player PR, then choose an evidence-backed item from the reliability backlog.
