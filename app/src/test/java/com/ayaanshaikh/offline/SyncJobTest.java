@@ -3,6 +3,7 @@ package com.ayaanshaikh.offline;
 import static org.junit.Assert.*;
 import android.app.job.JobScheduler;
 import android.content.Context;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -24,6 +25,10 @@ public class SyncJobTest {
         store = OfflineStore.get(context);
         scheduler = context.getSystemService(JobScheduler.class);
         scheduler.cancelAll();
+    }
+    @After public void cleanup() {
+        scheduler.cancelAll();
+        store.close();
     }
     @Test public void emptyLibraryDoesNotScheduleWork() {
         SyncJob.request(context, true);

@@ -20,7 +20,8 @@ A ChatGPT coding automation is enabled daily at approximately 08:00 America/Toro
 
 ## Priority 1 — reliability gaps from the testing pass
 
-- [ ] Add controlled-server coverage for redirect handling, truncated transfers, unknown content length, cancellation, retry, and partial-file cleanup. Keep production HTTPS/media-host restrictions intact.
+- [x] Add controlled-connection redirect coverage for supported/relative redirects, the four-hop limit, untrusted destinations, invalid locations, failure cleanup, DNS diagnostics, and cancellation. A stopped sync no longer starts another redirect request or hands off a response after cancellation.
+- [ ] Add controlled-server transport coverage for socket/TLS behavior, timeouts, retries, truncated/unknown-length transfers, and cleanup. Keep production HTTPS/media-host restrictions intact; the fixture-based tests do not validate real network transport.
 - [ ] Exercise process death and interrupted sync recovery; confirm published audio, the database index, and retry state remain consistent.
 - [ ] Verify Wi-Fi loss/reconnection, metered networks, low storage, low battery, and continuation of a queue larger than one sync batch.
 - [ ] Extend native playback coverage for corrupt/missing files, rapid track changes, audio-focus loss, headset removal, notification actions, and returning to the app.
@@ -70,3 +71,14 @@ Mark these blocked when setup is unavailable and continue independent items inst
 - No new emulator run is needed for this CI-only change; live-service and native-device gaps remain open.
 - Blockers: none for this CI increment; the existing live-service/device checks still require external setup.
 - Next: add bounded redirect-chain regression tests (including a trusted media host redirecting to an untrusted host and a redirect loop), then interrupted-sync recovery coverage. Continue to triage new owner reports first.
+
+### 2026-11-12 — stop cancelled redirect requests and cover redirect boundaries
+
+- Triage: no owner-reported bug issues or PR feedback; the latest CI was green. PR #1 (glass player) and PR #3 (product goals/provider roadmap) remain separate. This increment extends maintenance PR #2 without editing those branches or the README.
+- Reproduced two cancellation regressions before the fix: an interrupted thread still opened a connection, and interruption during a response could cause another redirect request or a response handoff. Redirect handling now throws `InterruptedIOException` before opening each hop and after a response, preserves the interruption flag, and disconnects any owned response.
+- Added 12 deterministic redirect test cases using an injectable connection creator. Production still uses `Http.open`, with the same HTTPS/Google media host policy and four-redirect limit applied before each request. Tests compare URL strings so assertions do not trigger DNS lookups.
+- Coverage includes 301/302/303/307/308, relative and scheme-relative locations, exactly four redirects, loops, untrusted hosts/ports/userinfo/HTTP, missing/malformed Location, HTTP errors, timeouts, DNS failures, and cancellation.
+- Closed SQLite test fixtures in teardown after the full run exposed CloseGuard warnings; the final run contained no such warnings.
+- Validation: debug build, all 52 tests (0 failures/skips), and lint passed (0 errors, 6 existing warnings) using JDK 17/SDK 35. Hosted validation is tracked by the [checks on PR #2](https://github.com/AayanShaikh007/Offline/pull/2/checks).
+- Limitations: this is controlled-connection/JVM coverage, not a live CDN/TLS or Android VM run. Cancellation is cooperative between operations; an already-blocked HTTP operation still relies on the existing network timeouts.
+- Next: test recovery when a fully published audio file exists but the process stopped before database indexing, then review interrupted queue recovery. Continue to prioritize any new owner reports.

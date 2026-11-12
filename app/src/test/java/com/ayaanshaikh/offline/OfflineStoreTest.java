@@ -3,6 +3,7 @@ package com.ayaanshaikh.offline;
 import static org.junit.Assert.*;
 import android.content.Context;
 import java.util.List;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -27,6 +28,7 @@ public class OfflineStoreTest {
         store = OfflineStore.get(context);
         store.add(link);
     }
+    @After public void cleanup() { store.close(); }
     private void snapshot(OfflineStore.RemoteSong... songs) {
         store.snapshot(link, new OfflineStore.Snapshot("Playlist", List.of(songs)));
     }

@@ -80,3 +80,13 @@ Added `.github/workflows/android.yml` to run wrapper validation, SDK/build-tool 
 Validation before publication: actionlint 1.7.12 reported no errors, and a fresh local test execution passed all 40 cases (0 failures/skips), with debug build and lint successful. Hosted runner results and downloadable artifacts are recorded in GitHub Actions for each commit; this local check is not a claim about a hosted run.
 
 The first [hosted Android checks run](https://github.com/AayanShaikh007/Offline/actions/runs/43030307614) completed successfully on `e740b54`, including clean-runner wrapper validation, JDK/SDK setup, build/test/lint, and both artifact uploads. This hosted run validates CI execution, not live downloads or device playback.
+
+## Redirect and cancellation verification — 2026-11-12
+
+Two new cancellation cases failed against the previous redirect loop: cancellation before starting a request still opened a connection, and cancellation during a response could continue redirecting or hand off the response. After adding interruption checks before each hop and after each response, both cases pass, the interrupt flag remains set for the sync caller, and owned connections are disconnected.
+
+`AudioRedirectTest` adds 12 deterministic cases for all supported redirect codes, relative locations, the allowed four-hop chain, loops, host/scheme/port/userinfo rejection before another connection is opened, missing/malformed locations, failure cleanup, DNS message sanitization, non-redirect errors, and cancellation. Only connection creation is injected; production uses the same policy with `Http.open`. No test-only trusted host or TLS bypass was added, and these fixtures do not make external network requests.
+
+The full local debug build, **52 tests (0 failures, 0 skipped)**, and lint passed with JDK 17/SDK 35. SQLite test fixture teardown now closes the helpers; the final output no longer contains the observed CloseGuard resource-leak warnings. Lint retains 6 pre-existing warnings and 0 errors. Hosted execution is visible on PR #2 for each pushed commit.
+
+No emulator or live service was used for these deterministic HTTP control-flow tests. Already-blocked socket operations remain bounded by existing HTTP timeouts; the fix does not promise immediate socket cancellation. Real TLS/socket tests and process-death recovery remain open backlog items.

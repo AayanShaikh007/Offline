@@ -6,6 +6,7 @@ import android.net.Uri;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -22,6 +23,7 @@ public class AppFlowTest {
         field.setAccessible(true);
         field.set(null, null);
     }
+    @After public void cleanup() { OfflineStore.get(RuntimeEnvironment.getApplication()).close(); }
     private TextView find(View root, String text) {
         if (root instanceof TextView label && text.contentEquals(label.getText())) return label;
         if (root instanceof ViewGroup group) {
