@@ -22,7 +22,8 @@ A ChatGPT coding automation is enabled daily at approximately 08:00 America/Toro
 
 - [x] Add controlled-connection redirect coverage for supported/relative redirects, the four-hop limit, untrusted destinations, invalid locations, failure cleanup, DNS diagnostics, and cancellation. A stopped sync no longer starts another redirect request or hands off a response after cancellation.
 - [ ] Add controlled-server transport coverage for socket/TLS behavior, timeouts, retries, truncated/unknown-length transfers, and cleanup. Keep production HTTPS/media-host restrictions intact; the fixture-based tests do not validate real network transport.
-- [ ] Exercise process death and interrupted sync recovery; confirm published audio, the database index, and retry state remain consistent.
+- [x] Cover the published-file/database-index restart boundary with SQLite reopen tests on API 26 and 35: recover M4A/WebM without a new transfer, keep partial/invalid files queued, preserve retry/manual-match state, and exclude shared saved audio from both queues.
+- [ ] Exercise actual process kills, unclean SQLite/WAL recovery, and interrupted job rescheduling; the reopen tests model the persistence boundary but do not simulate OS termination or power loss.
 - [ ] Verify Wi-Fi loss/reconnection, metered networks, low storage, low battery, and continuation of a queue larger than one sync batch.
 - [ ] Extend native playback coverage for corrupt/missing files, rapid track changes, audio-focus loss, headset removal, notification actions, and returning to the app.
 - [x] Add reproducible build/test CI: `.github/workflows/android.yml` validates PRs and `main` with JDK 17/SDK 35, publishes test/lint diagnostics, and provides a debug APK after successful checks. Actual hosted results are tracked by each workflow run.
@@ -82,3 +83,13 @@ Mark these blocked when setup is unavailable and continue independent items inst
 - Validation: debug build, all 52 tests (0 failures/skips), and lint passed (0 errors, 6 existing warnings) using JDK 17/SDK 35. Hosted validation is tracked by the [checks on PR #2](https://github.com/AayanShaikh007/Offline/pull/2/checks).
 - Limitations: this is controlled-connection/JVM coverage, not a live CDN/TLS or Android VM run. Cancellation is cooperative between operations; an already-blocked HTTP operation still relies on the existing network timeouts.
 - Next: test recovery when a fully published audio file exists but the process stopped before database indexing, then review interrupted queue recovery. Continue to prioritize any new owner reports.
+
+### 2026-11-13 — published audio and database restart recovery
+
+- Triage: no new owner bug issues or PR feedback; current CI was green. Main remains at version 0.1.4. PR #1's player UI and PR #3's product goals remain separate; this increment extends maintenance PR #2.
+- Isolated existing published-file lookup in `OfflineStore.findPublishedAudio`. `YouTubeSource.save` now checks local files before initializing the extractor, so the recovery path can be verified independently of live providers. File-name and container-signature checks are unchanged; invalid files are preserved rather than deleted.
+- Added nine recovery scenarios, each executed on Android API 26 and 35 (18 additional tests): M4A/WebM publication before indexing, partial files, invalid-first-format fallback, truncated/mismatched containers, stale-part replacement, missing indexed files, shared audio, and durable backoff/manual-match state. The first two exercise `YouTubeSource.save` returning an existing file without starting a transfer.
+- Validation: debug APK build, all 70 tests (0 failures/skips), and lint passed locally with JDK 17/SDK 35; lint has 0 errors and 6 existing warnings. Hosted validation is tracked by the [checks on PR #2](https://github.com/AayanShaikh007/Offline/pull/2/checks).
+- Limits: tests deliberately omit the index write, close/reopen SQLite, and reuse filesystem fixtures. This is not an actual OS process kill, unclean-WAL/power-loss test, audio decoding check, or live YouTube/Spotify run. No new Android VM test was performed.
+- Blockers: none for this increment; native crash/restart and live-service validation remain open.
+- Next: inspect whether a forced manual sync interrupted before queue completion retains its retry intent when JobScheduler reschedules it; add a reproduction before changing behavior. Continue to triage new owner reports first.

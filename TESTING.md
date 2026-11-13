@@ -90,3 +90,13 @@ Two new cancellation cases failed against the previous redirect loop: cancellati
 The full local debug build, **52 tests (0 failures, 0 skipped)**, and lint passed with JDK 17/SDK 35. SQLite test fixture teardown now closes the helpers; the final output no longer contains the observed CloseGuard resource-leak warnings. Lint retains 6 pre-existing warnings and 0 errors. Hosted execution is visible on PR #2 for each pushed commit.
 
 No emulator or live service was used for these deterministic HTTP control-flow tests. Already-blocked socket operations remain bounded by existing HTTP timeouts; the fix does not promise immediate socket cancellation. Real TLS/socket tests and process-death recovery remain open backlog items.
+
+## Published-file restart recovery — 2026-11-13
+
+Added `AudioRecoveryTest` with nine scenarios on both API 26 and API 35 (18 additional cases). Controlled responses publish signature-valid file fixtures through `AudioDownload.save`; tests deliberately omit database indexing, then close and reopen SQLite while retaining those files. M4A/WebM reuse is also exercised through `YouTubeSource.save`, with transfer-progress callbacks rejected on the reuse path.
+
+The cases verify durable indexing after reuse, exact saved bytes, exclusion from normal/forced queues, shared-file de-duplication across playlists, partial-file rejection, truncated/mismatched container rejection, invalid M4A fallback to valid WebM without deletion, replacement of a stale partial file, reconciliation of a missing indexed file, and persisted retry/backoff/manual-match state.
+
+The local lookup is now a store helper called before extractor initialization. This extracts the existing recovery algorithm rather than introducing a new format or relaxing its validation. The debug build, **70 tests (0 failures, 0 skipped)**, and lint passed with JDK 17/SDK 35; lint has 0 errors and 6 existing warnings. GitHub checks on PR #2 record hosted results for each push.
+
+These are deterministic JVM/Robolectric persistence-boundary tests. They do not kill an Android process, exercise an unclosed SQLite WAL after a crash, emulate power loss, decode the signature fixtures as audio, or contact live services. Those validation gaps remain explicit in the maintenance backlog.
