@@ -124,14 +124,31 @@ public final class SyncJob extends JobService {
         JobScheduler scheduler = context.getSystemService(JobScheduler.class);
         scheduler.cancel(PERIODIC);
         scheduler.cancel(IMMEDIATE);
-        takeForce(context);
+        synchronized (FORCE_LOCK) {
+            flags(context).edit().remove("force").remove("forceInFlight").apply();
+        }
     }
 
-    private static boolean takeForce(Context context) {
+    private static boolean forcePending(Context context) {
         synchronized (FORCE_LOCK) {
-            boolean force = flags(context).getBoolean("force", false);
-            flags(context).edit().remove("force").apply();
+            var state = flags(context);
+            return state.getBoolean("force", false) || state.getBoolean("forceInFlight", false);
+        }
+    }
+
+    private static boolean beginForce(Context context) {
+        synchronized (FORCE_LOCK) {
+            var state = flags(context);
+            boolean force = state.getBoolean("force", false) || state.getBoolean("forceInFlight", false);
+            if (force) state.edit().remove("force").putBoolean("forceInFlight", true).apply();
             return force;
+        }
+    }
+
+    private static void finishForce(Context context) {
+        synchronized (FORCE_LOCK) {
+            // A new tap during this run stays pending for the next run.
+            flags(context).edit().remove("forceInFlight").apply();
         }
     }
 
@@ -139,6 +156,10 @@ public final class SyncJob extends JobService {
         var playlists = OfflineStore.get(context).playlists();
         if (playlists.isEmpty()) return;
         schedule(context);
+        if (forcePending(context)) {
+            request(context, false);
+            return;
+        }
         long now = System.currentTimeMillis();
         for (var playlist : playlists) {
             if (playlist.checked() == 0 || now - playlist.checked() >= HOUR) {
@@ -198,7 +219,7 @@ public final class SyncJob extends JobService {
     private static void scheduleRemaining(Context context, boolean more) {
         var playlists = OfflineStore.get(context).playlists();
         if (playlists.isEmpty()) return;
-        boolean dueNow = flags(context).getBoolean("force", false) || playlists.stream().anyMatch(p -> p.checked() == 0);
+        boolean dueNow = forcePending(context) || playlists.stream().anyMatch(p -> p.checked() == 0);
         if (dueNow || more) enqueue(context, dueNow ? 0 : 60_000);
     }
 
@@ -224,8 +245,15 @@ public final class SyncJob extends JobService {
     }
 
     private static boolean runSync(Context context, Runnable checkNetwork) {
+        boolean force = beginForce(context);
+        // Only acknowledge a completed batch. Exceptions leave the request recoverable.
+        boolean more = runSync(context, checkNetwork, force);
+        finishForce(context);
+        return more;
+    }
+
+    private static boolean runSync(Context context, Runnable checkNetwork, boolean force) {
         OfflineStore store = OfflineStore.get(context);
-        boolean force = takeForce(context);
         var playlists = store.playlists();
         if (playlists.isEmpty()) return false;
         var youtube = new YouTubeSource();

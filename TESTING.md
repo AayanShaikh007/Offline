@@ -100,3 +100,13 @@ The cases verify durable indexing after reuse, exact saved bytes, exclusion from
 The local lookup is now a store helper called before extractor initialization. This extracts the existing recovery algorithm rather than introducing a new format or relaxing its validation. The debug build, **70 tests (0 failures, 0 skipped)**, and lint passed with JDK 17/SDK 35; lint has 0 errors and 6 existing warnings. GitHub checks on PR #2 record hosted results for each push.
 
 These are deterministic JVM/Robolectric persistence-boundary tests. They do not kill an Android process, exercise an unclosed SQLite WAL after a crash, emulate power loss, decode the signature fixtures as audio, or contact live services. Those validation gaps remain explicit in the maintenance backlog.
+
+## Interrupted manual sync — 2026-11-14
+
+`ForcedSyncRecoveryTest` adds eight scenarios on both API 26 and API 35 (16 cases). The reproduction starts with a recently checked playlist and a backoff-delayed track whose audio file is already published locally. A controlled stop interrupts the sync coordinator; a subsequent run must retain manual retry eligibility and index the file. The old code consumed the force flag at entry, producing 10 failing cases before the fix.
+
+The revised state transition keeps separate pending and in-progress intent. Exceptions leave in-progress intent recoverable; normal batch completion acknowledges only that state, retaining a newer pending request. Reopening the app checks unfinished manual intent even when the playlist check timestamp is recent. Removing all sources clears both states. Tests also cover repeated/later interruptions, normal completion without a forced retry loop, and automatic runs retaining normal backoff.
+
+The local debug build, **86 tests (0 failures, 0 skipped)**, and lint passed under JDK 17/SDK 35; lint has 0 errors and 6 existing warnings. Hosted execution is recorded by PR #2's checks for each push.
+
+The new tests invoke the real sync coordinator with controlled interruption callbacks and inspect persisted track/queue behavior plus Robolectric job scheduling. Spotify is disconnected so metadata access fails locally, and audio recovery uses a local signature fixture. They do not perform provider HTTP, Android process kills, physical power-loss tests, native JobScheduler callbacks, or audio decoding. Preference writes retain normal `apply()` durability limits. Existing batch limits and per-track checkpoint semantics are unchanged and remain a separate backlog item.
