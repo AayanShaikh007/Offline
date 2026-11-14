@@ -12,7 +12,7 @@ final class TrackMatch {
             "\\b(cover|karaoke|instrumental|sped up|slowed|nightcore|remix|live|acoustic|demo)\\b");
 
     static int score(String title, String artist, long seconds, String videoTitle, String uploader, long duration) {
-        if (seconds <= 0 || duration <= 0 || Math.abs(seconds - duration) > 8) return 0;
+        if (videoTitle == null || seconds <= 0 || duration <= 0 || Math.abs(seconds - duration) > 8) return 0;
         String name = clean(title);
         String performer = clean(artist);
         String candidate = clean(VIDEO_LABEL.matcher(videoTitle).replaceAll(" "));

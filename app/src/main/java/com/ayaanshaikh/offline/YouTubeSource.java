@@ -16,7 +16,6 @@ import org.schabi.newpipe.extractor.stream.StreamInfo;
 import org.schabi.newpipe.extractor.stream.StreamInfoItem;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -98,19 +97,10 @@ final class YouTubeSource {
 
     String save(String id, OfflineStore store, Runnable checkNetwork, AudioDownload.Progress progress)
             throws Exception {
-        initialize();
         store.ensureAudioDir();
-        // Recover a fully published file if a previous job ended before indexing it.
-        for (String extension : List.of("m4a", "webm")) {
-            File file = store.file(id + "." + extension);
-            if (!file.isFile()) continue;
-            try (var input = new FileInputStream(file)) {
-                AudioDownload.readHeader(input, file.getName());
-                return file.getName();
-            } catch (IOException ignored) {
-                // A new download can replace the invalid unpublished file.
-            }
-        }
+        String recovered = store.findPublishedAudio(id);
+        if (recovered != null) return recovered;
+        initialize();
         StreamInfo info = StreamInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/watch?v=" + id);
         List<AudioStream> formats = info.getAudioStreams().stream()
                 .filter(audio -> audio.isUrl() && audio.getDeliveryMethod() == DeliveryMethod.PROGRESSIVE_HTTP

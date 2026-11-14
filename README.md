@@ -33,6 +33,14 @@ Use JDK 17 and Android SDK Platform 35.
 
 The debug APK is under `app/build/outputs/apk/debug/`. On Windows, use `gradlew.bat`. Use the same signing key when building an update for an already installed APK.
 
+The unit test task includes Robolectric tests for Android 8 and Android 15 lifecycle and scheduling behavior, plus SQLite storage, input validation, matching, and HTTP response handling. These tests do not require an emulator or Spotify credentials. See [TESTING.md](TESTING.md) for the test report and remaining device checks.
+
+### Automatic pull request checks
+
+The [Android checks workflow](.github/workflows/android.yml) runs the same build, test, and lint tasks for pull requests and pushes to `main`, using JDK 17 and Android SDK Platform 35. It can also be started from GitHub's **Actions** tab once the workflow is on the default branch.
+
+Open a workflow run to download the `android-check-reports` artifact, including test results and lint diagnostics when available. Successful runs also provide `offline-debug-apk`. Artifacts are kept for seven days. The APK uses the runner's debug signing key; use a test device or emulator rather than attempting to update an installed signed release with it. These checks do not exercise live Spotify/YouTube services or replace device playback tests.
+
 ## Test locally on Windows
 
 ### Test the signed APK on a phone
@@ -68,3 +76,7 @@ For a command-line build, set `JAVA_HOME` to JDK 17 and `ANDROID_HOME` to your A
 5. If a track fails, open **Logs** and note the latest retry or error. If the app crashes, collect the Android crash log with `& $adb logcat -b crash -d` in PowerShell.
 
 Source is available under GPL-3.0-or-later. See [LICENSE](LICENSE).
+
+## Ongoing maintenance
+
+See [MAINTENANCE.md](MAINTENANCE.md) for the daily improvement backlog, working process, completed work, and checks that need external setup. Report bugs through GitHub Issues so scheduled maintenance can find them reliably.
