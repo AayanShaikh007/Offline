@@ -110,3 +110,13 @@ The revised state transition keeps separate pending and in-progress intent. Exce
 The local debug build, **86 tests (0 failures, 0 skipped)**, and lint passed under JDK 17/SDK 35; lint has 0 errors and 6 existing warnings. Hosted execution is recorded by PR #2's checks for each push.
 
 The new tests invoke the real sync coordinator with controlled interruption callbacks and inspect persisted track/queue behavior plus Robolectric job scheduling. Spotify is disconnected so metadata access fails locally, and audio recovery uses a local signature fixture. They do not perform provider HTTP, Android process kills, physical power-loss tests, native JobScheduler callbacks, or audio decoding. Preference writes retain normal `apply()` durability limits. Existing batch limits and per-track checkpoint semantics are unchanged and remain a separate backlog item.
+
+## Multi-batch manual retries — 2026-11-15
+
+`ForcedSyncBatchTest` adds eight scenarios on API 26 and API 35 (16 cases). Before the fix, 10 cases failed: forced retries beyond the 30-track/six-minute limits were no longer eligible for continuation, and interruption could cause an earlier failed attempt to bypass its new backoff again.
+
+The fix releases existing backoff once at manual-request preparation, without resetting attempt counts, statuses, inactive songs, or unresolved matches. Remaining work is persisted as due in SQLite and is consumed through the normal queue across later batches. A preparation marker distinguishes resume from a new explicit request and supports older in-flight state without that marker. This keeps newly assigned failure backoff intact and leaves the batch limits unchanged.
+
+The scenarios cover 31 tracks, 61 tracks over three batches, a simulated six-minute cutoff, continuation after store reopen, interrupted-pass failure preservation, a new manual request, unmatched/inactive rows, and legacy in-flight state. The full local debug build, **102 tests (0 failures, 0 skipped)**, and lint passed using JDK 17/SDK 35 (0 errors, 6 existing warnings). Hosted verification is tracked on PR #2 for the pushed commit.
+
+The tests use signature-valid local files, a disconnected Spotify account, controlled interruption callbacks, and a Robolectric clock. They do not validate native JobScheduler execution, true process termination or power loss, live provider traffic, or decoding. SQLite/preference writes are not a cross-store crash transaction; existing apply() durability limits remain. Metadata-refresh continuation is a separate open backlog item.

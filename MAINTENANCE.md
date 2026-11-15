@@ -25,7 +25,8 @@ A ChatGPT coding automation is enabled daily at approximately 08:00 America/Toro
 - [x] Cover the published-file/database-index restart boundary with SQLite reopen tests on API 26 and 35: recover M4A/WebM without a new transfer, keep partial/invalid files queued, preserve retry/manual-match state, and exclude shared saved audio from both queues.
 - [x] Preserve manual-sync retry intent across cooperative interruptions and app reopen, acknowledge only completed batches, and retain a newer request made while an older batch runs.
 - [ ] Exercise actual process kills, unclean SQLite/WAL recovery, and native JobScheduler rescheduling; current reopen/interruption tests do not simulate OS termination or power loss.
-- [ ] Verify forced retry queues larger than the 30-track/time budget; investigate per-pass checkpoints so continuation does not skip unattempted deferred tracks or repeatedly bypass backoff.
+- [x] Verify forced retry queues across the 30-track/time budget. Release prior backoff once per request, persist ordinary queue eligibility for remaining tracks, and preserve backoff assigned by new failures when resuming.
+- [ ] Test forced playlist refreshes cut short during the metadata phase by the time budget; determine whether refresh intent needs its own continuation checkpoint.
 - [ ] Verify Wi-Fi loss/reconnection, metered networks, low storage, low battery, and continuation of a queue larger than one sync batch.
 - [ ] Extend native playback coverage for corrupt/missing files, rapid track changes, audio-focus loss, headset removal, notification actions, and returning to the app.
 - [x] Add reproducible build/test CI: `.github/workflows/android.yml` validates PRs and `main` with JDK 17/SDK 35, publishes test/lint diagnostics, and provides a debug APK after successful checks. Actual hosted results are tracked by each workflow run.
@@ -105,3 +106,14 @@ Mark these blocked when setup is unavailable and continue independent items inst
 - Validation: debug build, all 86 tests (0 failures/skips), and lint passed locally with JDK 17/SDK 35. Lint has 0 errors and 6 existing warnings; hosted validation is tracked by the [checks on PR #2](https://github.com/AayanShaikh007/Offline/pull/2/checks).
 - Limits: tests invoke the sync coordinator with controlled interruption callbacks and Robolectric scheduling; no Android OS-kill, power-loss, live provider, or new VM run was performed. SharedPreferences retains its existing asynchronous write semantics. This change does not add per-track forced-pass checkpoints or alter batch limits.
 - Next: reproduce manual retries across the 30-track/time budget, particularly when all remaining songs are deferred by backoff, before changing continuation semantics. Native process/job tests remain open.
+
+### 2026-11-15 — continue manual retries across batch limits
+
+- Triage: no new owner issues/review feedback or failing checks; main remains at 0.1.4. PRs #1 and #3 remain separate; this increment extends maintenance PR #2.
+- Reproduced five failing scenarios on API 26 and 35 (10 baseline failures): a deferred retry beyond track 30, a six-minute cutoff, a 61-track queue, queue eligibility after reopening SQLite, and re-bypassing backoff for an earlier failure after interruption.
+- Manual request preparation now releases only the existing backoff of active, non-match-needed songs in SQLite, retaining attempt counts and statuses. Preparation is recorded after that update. Sync uses the ordinary due queue, so remaining tracks stay eligible for subsequent batches while newly failed tracks receive normal backoff.
+- An in-progress preparation marker prevents a resumed request from releasing new backoff again. New explicit requests prepare a fresh retry pass; older in-flight requests without the marker are honored. Completion and last-source removal clear preparation state. No schema migration or batch-limit change was introduced.
+- Added eight scenarios on API 26/35 (16 cases): 31/61-track boundaries, the time budget, interrupted failure backoff, a new explicit retry, unmatched/inactive preservation, older in-flight state, and SQLite reopen between batches. Fixtures use local files and a disconnected Spotify session, not provider HTTP.
+- Validation: debug build, all 102 tests (0 failures/skips), and lint passed locally under JDK 17/SDK 35. Lint has 0 errors and 6 existing warnings. Hosted results are tracked by the [checks on PR #2](https://github.com/AayanShaikh007/Offline/pull/2/checks).
+- Limits: controlled coordinator callbacks, Robolectric clocks, and clean database reopen do not establish native JobScheduler, OS-kill/WAL/power-loss, or live-provider behavior. SharedPreferences keeps apply() durability semantics; no per-playlist refresh checkpoint was added.
+- Next: reproduce a forced refresh that exhausts the time budget before all recently checked playlists are visited; keep native scheduler/process tests open.

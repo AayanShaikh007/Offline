@@ -125,7 +125,7 @@ public final class SyncJob extends JobService {
         scheduler.cancel(PERIODIC);
         scheduler.cancel(IMMEDIATE);
         synchronized (FORCE_LOCK) {
-            flags(context).edit().remove("force").remove("forceInFlight").apply();
+            flags(context).edit().remove("force").remove("forceInFlight").remove("forcePrepared").apply();
         }
     }
 
@@ -139,8 +139,17 @@ public final class SyncJob extends JobService {
     private static boolean beginForce(Context context) {
         synchronized (FORCE_LOCK) {
             var state = flags(context);
-            boolean force = state.getBoolean("force", false) || state.getBoolean("forceInFlight", false);
-            if (force) state.edit().remove("force").putBoolean("forceInFlight", true).apply();
+            boolean pending = state.getBoolean("force", false);
+            boolean force = pending || state.getBoolean("forceInFlight", false);
+            if (force) {
+                // Release once per request; later failures must retain their new backoff.
+                // Missing preparation state also covers in-flight requests from older builds.
+                if (pending || !state.getBoolean("forcePrepared", false)) {
+                    OfflineStore.get(context).releaseRetryBackoff();
+                }
+                state.edit().remove("force").putBoolean("forceInFlight", true)
+                        .putBoolean("forcePrepared", true).apply();
+            }
             return force;
         }
     }
@@ -148,7 +157,7 @@ public final class SyncJob extends JobService {
     private static void finishForce(Context context) {
         synchronized (FORCE_LOCK) {
             // A new tap during this run stays pending for the next run.
-            flags(context).edit().remove("forceInFlight").apply();
+            flags(context).edit().remove("forceInFlight").remove("forcePrepared").apply();
         }
     }
 
@@ -287,7 +296,7 @@ public final class SyncJob extends JobService {
         }
         int saved = 0;
         int attempted = 0;
-        for (var song : store.queue(force)) {
+        for (var song : store.queue(false)) {
             checkNetwork.run();
             if (SystemClock.elapsedRealtime() >= end || attempted >= 30) break;
             if (!store.isActive(song)) continue;

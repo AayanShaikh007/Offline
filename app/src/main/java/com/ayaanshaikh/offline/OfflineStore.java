@@ -191,6 +191,11 @@ final class OfflineStore extends SQLiteOpenHelper {
                 + "WHERE status<>'match needed'");
     }
 
+    void releaseRetryBackoff() {
+        getWritableDatabase().execSQL("UPDATE songs SET retry_at=0 "
+                + "WHERE active=1 AND status<>'match needed' AND retry_at>0");
+    }
+
     File file(String name) { return new File(audioDir, name); }
     void ensureAudioDir() throws java.io.IOException {
         if (!audioDir.isDirectory() && !audioDir.mkdirs()) throw new java.io.IOException("Audio folder unavailable");
