@@ -26,7 +26,7 @@ A ChatGPT coding automation is enabled daily at approximately 08:00 America/Toro
 - [x] Preserve manual-sync retry intent across cooperative interruptions and app reopen, acknowledge only completed batches, and retain a newer request made while an older batch runs.
 - [ ] Exercise actual process kills, unclean SQLite/WAL recovery, and native JobScheduler rescheduling; current reopen/interruption tests do not simulate OS termination or power loss.
 - [x] Verify forced retry queues across the 30-track/time budget. Release prior backoff once per request, persist ordinary queue eligibility for remaining tracks, and preserve backoff assigned by new failures when resuming.
-- [ ] Test forced playlist refreshes cut short during the metadata phase by the time budget; determine whether refresh intent needs its own continuation checkpoint.
+- [x] Persist unvisited manual playlist refresh targets across metadata time limits and interruptions; continue automatic due refreshes after the budget and skip recently attempted sources on resume.
 - [ ] Verify Wi-Fi loss/reconnection, metered networks, low storage, low battery, and continuation of a queue larger than one sync batch.
 - [ ] Extend native playback coverage for corrupt/missing files, rapid track changes, audio-focus loss, headset removal, notification actions, and returning to the app.
 - [x] Add reproducible build/test CI: `.github/workflows/android.yml` validates PRs and `main` with JDK 17/SDK 35, publishes test/lint diagnostics, and provides a debug APK after successful checks. Actual hosted results are tracked by each workflow run.
@@ -117,3 +117,15 @@ Mark these blocked when setup is unavailable and continue independent items inst
 - Validation: debug build, all 102 tests (0 failures/skips), and lint passed locally under JDK 17/SDK 35. Lint has 0 errors and 6 existing warnings. Hosted results are tracked by the [checks on PR #2](https://github.com/AayanShaikh007/Offline/pull/2/checks).
 - Limits: controlled coordinator callbacks, Robolectric clocks, and clean database reopen do not establish native JobScheduler, OS-kill/WAL/power-loss, or live-provider behavior. SharedPreferences keeps apply() durability semantics; no per-playlist refresh checkpoint was added.
 - Next: reproduce a forced refresh that exhausts the time budget before all recently checked playlists are visited; keep native scheduler/process tests open.
+
+
+### 2026-11-16 — resume playlist metadata refreshes
+
+- Triage: no new owner issues, PR feedback, or failing checks. Inspected main and pending branches; PR #1 (glass player) and #3 (product goals) remain separate. This increment extends maintenance PR #2.
+- Reproduced 12 failing cases across API 26/35: normal deadline returns discarded unfinished manual metadata intent, continuation revisited already attempted sources, and automatic metadata-only work did not request another batch.
+- Manual requests now snapshot playlist keys and persist the remaining targets after each completed lookup or recorded provider error. Deadline/interruption retains unvisited targets; removed sources are pruned, new explicit requests start a fresh target set, and legacy in-flight requests initialize the set once. Newly added/due sources still follow normal freshness rules. Automatic due metadata also requests continuation when the deadline interrupts it.
+- Added eight scenarios on API 26/35 (16 cases): repeated deadlines, interruption, no replay of completed recent sources, new requests, removal, legacy state, automatic due work, and newly added sources.
+- Validation: debug build, all 118 tests (0 failures/errors/skips), and lint passed locally using JDK 17/SDK 35. Lint retains 0 errors and 6 existing warnings. Hosted validation is tracked by the [checks on PR #2](https://github.com/AayanShaikh007/Offline/pull/2/checks).
+- Limits: disconnected Spotify fails before HTTP; controlled callbacks and Robolectric elapsed clocks establish coordinator behavior, not successful provider access, native scheduling, OS kills, or power-loss durability. Preferences retain apply() semantics. No new emulator interaction was performed for this increment.
+- Blockers: none for the coordinator fix; live Spotify validation requires an authorized developer account/app.
+- Next: exercise native job cancellation/restart on an Android emulator, including inspection of persisted pending metadata state, before claiming OS lifecycle recovery. Continue to prioritize reproducible owner reports.

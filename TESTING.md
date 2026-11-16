@@ -120,3 +120,14 @@ The fix releases existing backoff once at manual-request preparation, without re
 The scenarios cover 31 tracks, 61 tracks over three batches, a simulated six-minute cutoff, continuation after store reopen, interrupted-pass failure preservation, a new manual request, unmatched/inactive rows, and legacy in-flight state. The full local debug build, **102 tests (0 failures, 0 skipped)**, and lint passed using JDK 17/SDK 35 (0 errors, 6 existing warnings). Hosted verification is tracked on PR #2 for the pushed commit.
 
 The tests use signature-valid local files, a disconnected Spotify account, controlled interruption callbacks, and a Robolectric clock. They do not validate native JobScheduler execution, true process termination or power loss, live provider traffic, or decoding. SQLite/preference writes are not a cross-store crash transaction; existing apply() durability limits remain. Metadata-refresh continuation is a separate open backlog item.
+
+
+## Playlist refresh continuation — 2026-11-16
+
+`PlaylistRefreshRecoveryTest` adds eight scenarios on API 26 and API 35 (16 cases). The baseline produced 12 failures: a metadata deadline could acknowledge an unfinished manual request, continuation could replay recently attempted sources, and automatic metadata-only work could return without requesting a further batch.
+
+Tests cover one and repeated six-minute cutoffs, cooperative interruption, a fresh manual request, removal of an unvisited source, legacy in-flight preferences, automatic due refreshes, and adding an unchecked source between batches. Recently attempted sources receive explicit recent database timestamp markers to detect replay deterministically. Due-source fixtures explicitly backdate database timestamps; the Robolectric elapsed clock controls only the batch deadline, not production wall-clock freshness.
+
+The fix persists remaining forced playlist keys and checkpoints each completed/recorded-error metadata attempt. Unvisited targets survive normal deadline returns and cooperative interruption. Automatic due work also reports continuation after a deadline. The full local debug build, **118 tests (0 failures, 0 errors, 0 skipped)**, and lint passed with JDK 17/SDK 35 (0 errors, 6 existing warnings). Hosted results are tracked on PR #2 for each push.
+
+The Spotify account is disconnected, so these metadata attempts fail locally before any HTTP request; successful provider responses are not validated here. No new emulator, native JobScheduler, OS-kill, WAL/power-loss, or live-provider test was run. Preference persistence retains asynchronous apply() durability limits and is not atomic with SQLite writes.

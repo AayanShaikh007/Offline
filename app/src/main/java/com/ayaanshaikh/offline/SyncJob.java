@@ -16,11 +16,14 @@ import android.os.Looper;
 import android.os.SystemClock;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 public final class SyncJob extends JobService {
     static final long HOUR = 3_600_000L;
@@ -125,7 +128,8 @@ public final class SyncJob extends JobService {
         scheduler.cancel(PERIODIC);
         scheduler.cancel(IMMEDIATE);
         synchronized (FORCE_LOCK) {
-            flags(context).edit().remove("force").remove("forceInFlight").remove("forcePrepared").apply();
+            flags(context).edit().remove("force").remove("forceInFlight").remove("forcePrepared")
+                    .remove("forceRefreshes").apply();
         }
     }
 
@@ -147,8 +151,13 @@ public final class SyncJob extends JobService {
                 if (pending || !state.getBoolean("forcePrepared", false)) {
                     OfflineStore.get(context).releaseRetryBackoff();
                 }
-                state.edit().remove("force").putBoolean("forceInFlight", true)
-                        .putBoolean("forcePrepared", true).apply();
+                var edit = state.edit().remove("force").putBoolean("forceInFlight", true)
+                        .putBoolean("forcePrepared", true);
+                if (pending || !state.contains("forceRefreshes")) {
+                    edit.putStringSet("forceRefreshes", OfflineStore.get(context).playlists().stream()
+                            .map(playlist -> playlist.link().key()).collect(Collectors.toSet()));
+                }
+                edit.apply();
             }
             return force;
         }
@@ -156,8 +165,29 @@ public final class SyncJob extends JobService {
 
     private static void finishForce(Context context) {
         synchronized (FORCE_LOCK) {
+            var state = flags(context);
+            if (state.getBoolean("forceInFlight", false)
+                    && !state.getStringSet("forceRefreshes", Set.of()).isEmpty()) return;
             // A new tap during this run stays pending for the next run.
-            flags(context).edit().remove("forceInFlight").remove("forcePrepared").apply();
+            state.edit().remove("forceInFlight").remove("forcePrepared").remove("forceRefreshes").apply();
+        }
+    }
+
+    private static Set<String> pendingRefreshes(Context context) {
+        synchronized (FORCE_LOCK) {
+            var state = flags(context);
+            return state.getBoolean("forceInFlight", false)
+                    ? new HashSet<>(state.getStringSet("forceRefreshes", Set.of())) : new HashSet<>();
+        }
+    }
+
+    private static void saveRefreshes(Context context, Set<String> remaining) {
+        synchronized (FORCE_LOCK) {
+            var state = flags(context);
+            // Do not resurrect progress after the last source was removed.
+            if (state.getBoolean("forceInFlight", false)) {
+                state.edit().putStringSet("forceRefreshes", new HashSet<>(remaining)).apply();
+            }
         }
     }
 
@@ -264,16 +294,24 @@ public final class SyncJob extends JobService {
     private static boolean runSync(Context context, Runnable checkNetwork, boolean force) {
         OfflineStore store = OfflineStore.get(context);
         var playlists = store.playlists();
+        var refreshes = pendingRefreshes(context);
+        refreshes.retainAll(playlists.stream().map(playlist -> playlist.link().key()).collect(Collectors.toSet()));
+        saveRefreshes(context, refreshes);
         if (playlists.isEmpty()) return false;
         var youtube = new YouTubeSource();
         var spotify = new SpotifySource(context);
         long end = SystemClock.elapsedRealtime() + 6 * 60_000L;
         store.reconcileAudio();
         boolean refreshed = false;
+        boolean moreRefreshes = false;
         for (var playlist : playlists) {
             checkNetwork.run();
-            if (!force && System.currentTimeMillis() - playlist.checked() < HOUR - 15 * 60_000L) continue;
-            if (SystemClock.elapsedRealtime() >= end) break;
+            boolean forced = force && refreshes.contains(playlist.link().key());
+            if (!forced && System.currentTimeMillis() - playlist.checked() < HOUR - 15 * 60_000L) continue;
+            if (SystemClock.elapsedRealtime() >= end) {
+                moreRefreshes = true;
+                break;
+            }
             PlaylistLink link = playlist.link();
             activity = "reading " + link.source() + " playlist";
             boolean fromSpotify = PlaylistLink.SPOTIFY.equals(link.source());
@@ -293,6 +331,7 @@ public final class SyncJob extends JobService {
                 store.playlistError(link, problem);
                 store.log(link.source() + " · " + problem);
             }
+            if (refreshes.remove(link.key())) saveRefreshes(context, refreshes);
         }
         int saved = 0;
         int attempted = 0;
@@ -333,7 +372,7 @@ public final class SyncJob extends JobService {
         if (refreshed || attempted > 0) {
             store.log("Sync finished · " + saved + " saved · " + attempted + " attempted");
         }
-        return !store.queue(false).isEmpty();
+        return moreRefreshes || !pendingRefreshes(context).isEmpty() || !store.queue(false).isEmpty();
     }
 
     private static String youtubeProblem(Exception error) {
