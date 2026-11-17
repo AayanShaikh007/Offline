@@ -33,7 +33,12 @@ public final class SyncJob extends JobService {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final AtomicBoolean FOREGROUND_PENDING = new AtomicBoolean();
     private static final Object FORCE_LOCK = new Object();
-    private final Map<JobParameters, Future<?>> jobs = new HashMap<>();
+    private final Map<Integer, JobRun> jobs = new HashMap<>();
+    private static final class JobRun {
+        final JobParameters params;
+        Future<?> work;
+        JobRun(JobParameters params) { this.params = params; }
+    }
     private static volatile boolean running;
     private static volatile String activity = "";
     private static volatile DownloadProgress downloadProgress;
@@ -222,7 +227,11 @@ public final class SyncJob extends JobService {
     }
 
     @Override public boolean onStartJob(JobParameters params) {
-        Future<?> work = WORK.submit(() -> {
+        // Start/stop callbacks receive separately parcelled JobParameters objects.
+        var run = new JobRun(params);
+        var previous = jobs.put(params.getJobId(), run);
+        if (previous != null) previous.work.cancel(true);
+        run.work = WORK.submit(() -> {
             boolean retry = false;
             boolean more = false;
             try {
@@ -242,16 +251,16 @@ public final class SyncJob extends JobService {
             } finally {
                 boolean reschedule = retry;
                 boolean remaining = more;
-                MAIN.post(() -> complete(params, reschedule, remaining));
+                MAIN.post(() -> complete(run, reschedule, remaining));
             }
         });
-        jobs.put(params, work);
         return true;
     }
 
-    private void complete(JobParameters params, boolean retry, boolean more) {
-        if (jobs.remove(params) == null) return;
-        jobFinished(params, retry);
+    private void complete(JobRun run, boolean retry, boolean more) {
+        // A stopped run's late callback must not acknowledge a newer run of the same ID.
+        if (!jobs.remove(run.params.getJobId(), run)) return;
+        jobFinished(run.params, retry);
         if (!retry) MAIN.postDelayed(() -> scheduleRemaining(this, more), 400);
     }
 
@@ -263,8 +272,8 @@ public final class SyncJob extends JobService {
     }
 
     @Override public boolean onStopJob(JobParameters params) {
-        Future<?> work = jobs.remove(params);
-        if (work != null) work.cancel(true);
+        JobRun run = jobs.remove(params.getJobId());
+        if (run != null) run.work.cancel(true);
         return params.getJobId() == IMMEDIATE;
     }
 

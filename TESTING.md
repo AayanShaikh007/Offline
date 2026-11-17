@@ -131,3 +131,24 @@ Tests cover one and repeated six-minute cutoffs, cooperative interruption, a fre
 The fix persists remaining forced playlist keys and checkpoints each completed/recorded-error metadata attempt. Unvisited targets survive normal deadline returns and cooperative interruption. Automatic due work also reports continuation after a deadline. The full local debug build, **118 tests (0 failures, 0 errors, 0 skipped)**, and lint passed with JDK 17/SDK 35 (0 errors, 6 existing warnings). Hosted results are tracked on PR #2 for each push.
 
 The Spotify account is disconnected, so these metadata attempts fail locally before any HTTP request; successful provider responses are not validated here. No new emulator, native JobScheduler, OS-kill, WAL/power-loss, or live-provider test was run. Preference persistence retains asynchronous apply() durability limits and is not atomic with SQLite writes.
+
+
+## Native cancellation and process restart — 2026-11-17
+
+The new [host-driven smoke procedure](docs/testing/native-sync-smoke.md) ran successfully on a fresh Android 15/API 35 x86_64 software emulator with Offline 0.1.4. It uses platform instrumentation with no new dependency. The test APK is now compiled in CI; hosted CI does **not** execute this emulator procedure.
+
+The native baseline `c0ee06c` exposed a real cancellation bug: JobScheduler showed job 1102 executing, then reported it stopped, yet releasing its executor consumed the remaining metadata targets. Start/stop receive different parcelled JobParameters instances; the object-keyed worker map failed to find and cancel the stopped task. The fix uses job IDs and a per-run identity, so late completion cannot remove a replacement run. Five lifecycle scenarios on API 26/35 add 10 JVM cases; the debug app/test APK builds, **128 tests (0 failures/errors/skips)**, and lint passed with JDK 17/SDK 35 (0 errors, 6 existing warnings). actionlint 1.7.12 passed.
+
+| Native check | Result |
+| --- | --- |
+| Interrupt after one of three metadata attempts, flush preferences, SIGKILL with SQLite open | Passed: a new process retained the exact two-target cursor and first-source timestamp |
+| Start real job 1102 with its worker queued, timeout through Android's shell service, release on eligible Wi-Fi | Passed: cancelled worker made no progress; pending checkpoint retained |
+| Resume through native JobService | Passed: remaining sources attempted, completed intent cleared, first source not replayed |
+| Launch Sources, assert all three fixtures, tap Logs and assert diagnostics | Passed; screenshots and UI XML captured |
+| Offline crash buffer | No Offline crash entries; the intentional SIGKILL is reported as process termination by instrumentation |
+
+Evidence: [native run summary](docs/testing/android15-native-sync.txt), [Sources screenshot](docs/testing/android15-native-sync-sources.png), and [Logs screenshot](docs/testing/android15-native-sync-log.png). Full local command/job/UI logs were retained under `/workspace/tooling/native-smoke-2026-11-17-verified` in the execution environment.
+
+Harness development preserved failed attempts: package absence initially needed different exit handling; Android 15 reports timeout as “Stopping job”; historical connectivity dump entries were not a valid readiness signal. The final harness connects the synthetic AndroidWifi AP and waits for Offline's own eligibility check. Earlier software-VM startup also left a System UI ANR dialog over Sources. Selecting Wait recovered the screen; the final full run completed without that obstruction. No logs were suppressed. This software-emulated environment is unsuitable for performance conclusions.
+
+Fixtures contain empty Spotify playlists without an account, so metadata fails before provider HTTP. The checkpoint is explicitly flushed before SIGKILL; this does not establish durability in apply() crash windows, arbitrary WAL corruption or power loss. Cancellation of a queued worker does not prove cancellation of an already blocked socket or active database write. Live provider access, decoding, active-transfer network transitions, and physical-device behavior remain open. The script refuses existing app installations and preserves its fixture data; only fixtures created in this disposable VM were reset during harness development.

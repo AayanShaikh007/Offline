@@ -12,6 +12,7 @@ android {
         targetSdk 35
         versionCode 5
         versionName '0.1.4'
+        testInstrumentationRunner 'com.ayaanshaikh.offline.NativeSyncSmoke'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
