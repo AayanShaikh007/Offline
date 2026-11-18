@@ -30,3 +30,19 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.robolectric:robolectric:4.14.1'
 }
+
+// Robolectric changes process-wide crypto providers. Keep real JDK transport tests
+// in their own worker, while retaining the documented unit-test entry point.
+afterEvaluate {
+    tasks.withType(Test).findAll { it.name.endsWith('UnitTest') }.each { unit ->
+        def transport = tasks.register(unit.name.replace('UnitTest', 'Transport'), Test) {
+            group = 'verification'
+            description = 'Runs loopback download transport tests in an isolated JVM.'
+            testClassesDirs = unit.testClassesDirs
+            classpath = unit.classpath
+            include '**/AudioTransportTest.class'
+        }
+        unit.exclude '**/AudioTransportTest.class'
+        unit.dependsOn transport
+    }
+}

@@ -150,7 +150,13 @@ public class AudioTransportTest {
 
     @Test public void trustingTheCertificateDoesNotBypassHostnameVerification() throws Exception {
         try (var server = new Server(true, true, (socket, release) -> fixed(socket, BODY, BODY.length))) {
-            assertThrows(SSLHandshakeException.class, () -> server.connection(true, true, 5000));
+            // JSSE endpoint identification and HttpsURLConnection's fallback verifier use
+            // different IOException subclasses, but both must identify the rejected host.
+            var failure = assertThrows(IOException.class, () -> server.connection(true, true, 5000));
+            String message = failure.getMessage().toLowerCase(java.util.Locale.ROOT);
+            assertTrue("Expected hostname rejection: " + failure, message.contains("127.0.0.1"));
+            assertTrue("Expected hostname rejection: " + failure,
+                    message.contains("hostname wrong") || message.contains("subject alternative"));
             absent();
         }
     }
@@ -204,7 +210,9 @@ public class AudioTransportTest {
                     client = socket;
                     socket.setSoTimeout(5000);
                     var request = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.US_ASCII));
-                    assertTrue("Expected GET", request.readLine().startsWith("GET "));
+                    String first = request.readLine();
+                    if (first == null) throw new java.io.EOFException("Client closed before GET");
+                    assertTrue("Expected GET", first.startsWith("GET "));
                     String line;
                     while ((line = request.readLine()) != null && !line.isEmpty()) {}
                     response.send(socket, release);
