@@ -5,6 +5,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.UnknownHostException;
@@ -19,16 +20,26 @@ final class AudioDownload {
         void update(long received, long total);
     }
 
+    interface ConnectionFactory {
+        HttpURLConnection open(URL url) throws IOException;
+    }
+
     static HttpURLConnection open(String address) throws IOException {
+        return open(address, url -> Http.open(url.toExternalForm()));
+    }
+
+    static HttpURLConnection open(String address, ConnectionFactory connections) throws IOException {
         URL url = new URL(address);
         for (int redirects = 0; ; redirects++) {
+            checkInterrupted();
             if (!isTrustedUrl(url)) throw new IOException("Untrusted audio server");
             HttpURLConnection connection = null;
             boolean keep = false;
             try {
-                connection = Http.open(url.toExternalForm());
+                connection = connections.open(url);
                 connection.setInstanceFollowRedirects(false);
                 int code = connection.getResponseCode();
+                checkInterrupted();
                 if (code != 301 && code != 302 && code != 303 && code != 307 && code != 308) {
                     keep = true;
                     return connection;
@@ -44,6 +55,10 @@ final class AudioDownload {
                 if (!keep && connection != null) connection.disconnect();
             }
         }
+    }
+
+    private static void checkInterrupted() throws InterruptedIOException {
+        if (Thread.currentThread().isInterrupted()) throw new InterruptedIOException("Audio request interrupted");
     }
 
     static String save(HttpURLConnection connection, File complete, Runnable checkNetwork,

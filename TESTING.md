@@ -1,0 +1,184 @@
+# Verification report — 2026-11-06
+
+Baseline: `d3a5c7ebb94ca5ee3db56ae40d8575e540977a96`.
+
+## Build and automated checks
+
+Verified using Temurin JDK 17, Android SDK Platform 35, Build Tools 35.0.0, and Gradle 8.11.1 on Linux:
+
+```sh
+./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+```
+
+- Debug APK: built successfully.
+- Unit/Robolectric tests: **36 passed, 0 failed**.
+- Lint: **0 errors, 6 warnings**. Remaining warnings concern synchronous Spotify preference commits, the programmatically constructed download view, and untranslated status text.
+- Wrapper: downloaded the pinned distribution, checked its SHA-256, and executed the documented command successfully.
+
+| Area | Verified behavior |
+| --- | --- |
+| Links | YouTube/Music and localized Spotify playlist links; deceptive domains, credentials in URLs, missing playlist IDs, unsupported radio links; null/empty input; short links, Shorts/live links, encoded IDs, whitespace |
+| Matching | Artist identity, accents, official labels, explicitly requested editions, rejected alternate editions, duration tolerance, missing extractor metadata |
+| Audio response validation | Trusted HTTPS media hosts, rejected impostor domains/ports, valid MP4/WebM signatures, truncated/mismatched/HTML responses |
+| HTTP | UTF-8, stream closure, bounded response size, interruption, rejected cleartext |
+| Storage | Duplicate playlists/tracks, ordering, removals/reappearances, empty snapshots, saved-audio exclusion from the queue, missing-file reconciliation, untracking during sync, retry backoff, manual matching, Spotify source removal, bounded logs |
+| Android lifecycle | Empty Sources/Vault/Logs, Settings navigation and recreation; Android 8/API 26 and Android 15/API 35 |
+| Scheduler | Empty-source no-op, offline deferral, repeated requests, persisted hourly job, battery/storage constraints, cancellation after last source removal; API 26 and 35 |
+| Spotify authorization | Client ID validation, distinct PKCE/state values, exact redirect URI, forged and expired callbacks, disconnected state |
+| Playback failure | Missing-file message; harmless transport/seek actions without a ready player; stop clears error state; API 26 and 35 |
+
+## Fixed defects
+
+1. Restored missing Gradle wrapper scripts/JAR and the distribution URL. The documented build previously could not run from a fresh checkout.
+2. Missing video titles no longer throw during automatic matching.
+3. Missing link input now produces normal validation instead of a null-pointer exception.
+4. Manual matches accept standard Shorts/live/embed links, padded raw IDs, and URL-encoded watch IDs.
+5. Stopping playback clears the previous error so the empty error panel can disappear.
+6. Made the legacy backup policy explicit alongside the existing Android 12+ rules, resolving the manifest lint warning.
+
+## Android VM
+
+Installed and interacted with the debug APK on an Android 15/API 35 x86_64 VM, using Android Emulator 37.2.13, software CPU/GPU emulation, and a 480×800 display. Hardware virtualization was unavailable. The documented build command and the APK used in this VM both passed verification.
+
+Two locally generated, two-minute AAC tones were placed in the fresh VM's app storage and indexed in a fixture database. Wi-Fi was disabled for playback. These files were seeded fixtures, not downloads from YouTube. Emulator audio output was disabled; playback was checked through the rendered controls, advancing position, duration, and native media-session state rather than listening to sound.
+
+| Interactive check | Result |
+| --- | --- |
+| Install and launch | Passed; Sources rendered successfully |
+| Invalid playlist input | Passed; actionable inline error and dialog remained open |
+| Playlist details | Passed; fixture showed 2 / 2 available offline |
+| Vault | Passed; both generated tracks appeared |
+| Offline AAC playback | Passed; two-minute duration and advancing playback position; native session `PLAYING(3)` |
+| Next track | Passed; title/session metadata changed from Tone one to Tone two |
+| Background playback | Passed; after Home, media session stayed playing and service remained foreground with notification ID 2101 |
+| Return to app | Passed; playback controls and position restored |
+| Pause | Passed; UI changed to Play and native session became paused |
+| Seek while paused | Passed; position changed from 1:05 to 0:20 and native session reported `PAUSED(2)`, position 20004 ms |
+| Untrack | Passed; confirmation shown, untrack event logged, and both audio files remained in Vault |
+| Logs and Settings | Passed; untrack log and Spotify/setup/retry controls rendered after playback |
+
+Screenshots: [offline playback](docs/testing/android15-offline-playback.png), [input validation](docs/testing/android15-invalid-playlist.png).
+
+The VM took roughly 4.5 minutes to boot and its System UI repeatedly timed out under software emulation. System UI was restarted and repeated system-error dialogs were suppressed to complete interactions; logs remained enabled. This run is not a useful performance benchmark. No Offline entries appeared in the collected crash buffer.
+
+## Scope and remaining checks
+
+Robolectric runs Android behavior on the JVM; it does not establish real audio decoding, background-service survival, or external service availability. The VM uses generated AAC fixtures to exercise local playback; fixture playback does not prove a YouTube download succeeded.
+
+Live YouTube extraction and downloads were not verified end to end. Full Spotify authorization, refresh, account switching, API permission/rate-limit behavior, and live playlist access require a Spotify developer app and authorized account. No Spotify credentials were provided. Real-device checks remain appropriate for Bluetooth/headset removal, phone-call audio focus, notification controls, OEM battery policies, network transitions during transfers, low-storage behavior, process death, and long multi-batch syncs. Download redirect handling and full transfer interruption are reviewed but not exercised against a controlled media server by these automated tests.
+
+## Integration verification — 2026-11-11
+
+Merged current `main` at `880ec1a` into the fixes branch, preserving version 0.1.4 and its manual-sync retry, DNS, and audio-transfer changes. Updated the storage regression tests for `queue(boolean force)` and verified that forced sync bypasses retry backoff while continuing to exclude unresolved manual matches.
+
+The debug build, **40 tests (0 failures, 0 skipped)**, and lint completed successfully using JDK 17 and SDK 35. This is a fresh build/test/lint check; the Android VM screenshots above remain the historical 2026-11-06 test of version 0.1.3. The VM pass was not repeated during this scheduling/publication update.
+
+## Automatic CI — 2026-11-11
+
+Added `.github/workflows/android.yml` to run wrapper validation, SDK/build-tool setup, and the documented build/test/lint tasks for PRs and pushes to `main`. The job retains available test/lint diagnostics on failure and uploads a debug APK only after successful checks. Artifacts expire after seven days; CI does not sign release updates or run live-service/device tests.
+
+Validation before publication: actionlint 1.7.12 reported no errors, and a fresh local test execution passed all 40 cases (0 failures/skips), with debug build and lint successful. Hosted runner results and downloadable artifacts are recorded in GitHub Actions for each commit; this local check is not a claim about a hosted run.
+
+The first [hosted Android checks run](https://github.com/AayanShaikh007/Offline/actions/runs/43030307614) completed successfully on `e740b54`, including clean-runner wrapper validation, JDK/SDK setup, build/test/lint, and both artifact uploads. This hosted run validates CI execution, not live downloads or device playback.
+
+## Redirect and cancellation verification — 2026-11-12
+
+Two new cancellation cases failed against the previous redirect loop: cancellation before starting a request still opened a connection, and cancellation during a response could continue redirecting or hand off the response. After adding interruption checks before each hop and after each response, both cases pass, the interrupt flag remains set for the sync caller, and owned connections are disconnected.
+
+`AudioRedirectTest` adds 12 deterministic cases for all supported redirect codes, relative locations, the allowed four-hop chain, loops, host/scheme/port/userinfo rejection before another connection is opened, missing/malformed locations, failure cleanup, DNS message sanitization, non-redirect errors, and cancellation. Only connection creation is injected; production uses the same policy with `Http.open`. No test-only trusted host or TLS bypass was added, and these fixtures do not make external network requests.
+
+The full local debug build, **52 tests (0 failures, 0 skipped)**, and lint passed with JDK 17/SDK 35. SQLite test fixture teardown now closes the helpers; the final output no longer contains the observed CloseGuard resource-leak warnings. Lint retains 6 pre-existing warnings and 0 errors. Hosted execution is visible on PR #2 for each pushed commit.
+
+No emulator or live service was used for these deterministic HTTP control-flow tests. Already-blocked socket operations remain bounded by existing HTTP timeouts; the fix does not promise immediate socket cancellation. Real TLS/socket tests and process-death recovery remain open backlog items.
+
+## Published-file restart recovery — 2026-11-13
+
+Added `AudioRecoveryTest` with nine scenarios on both API 26 and API 35 (18 additional cases). Controlled responses publish signature-valid file fixtures through `AudioDownload.save`; tests deliberately omit database indexing, then close and reopen SQLite while retaining those files. M4A/WebM reuse is also exercised through `YouTubeSource.save`, with transfer-progress callbacks rejected on the reuse path.
+
+The cases verify durable indexing after reuse, exact saved bytes, exclusion from normal/forced queues, shared-file de-duplication across playlists, partial-file rejection, truncated/mismatched container rejection, invalid M4A fallback to valid WebM without deletion, replacement of a stale partial file, reconciliation of a missing indexed file, and persisted retry/backoff/manual-match state.
+
+The local lookup is now a store helper called before extractor initialization. This extracts the existing recovery algorithm rather than introducing a new format or relaxing its validation. The debug build, **70 tests (0 failures, 0 skipped)**, and lint passed with JDK 17/SDK 35; lint has 0 errors and 6 existing warnings. GitHub checks on PR #2 record hosted results for each push.
+
+These are deterministic JVM/Robolectric persistence-boundary tests. They do not kill an Android process, exercise an unclosed SQLite WAL after a crash, emulate power loss, decode the signature fixtures as audio, or contact live services. Those validation gaps remain explicit in the maintenance backlog.
+
+## Interrupted manual sync — 2026-11-14
+
+`ForcedSyncRecoveryTest` adds eight scenarios on both API 26 and API 35 (16 cases). The reproduction starts with a recently checked playlist and a backoff-delayed track whose audio file is already published locally. A controlled stop interrupts the sync coordinator; a subsequent run must retain manual retry eligibility and index the file. The old code consumed the force flag at entry, producing 10 failing cases before the fix.
+
+The revised state transition keeps separate pending and in-progress intent. Exceptions leave in-progress intent recoverable; normal batch completion acknowledges only that state, retaining a newer pending request. Reopening the app checks unfinished manual intent even when the playlist check timestamp is recent. Removing all sources clears both states. Tests also cover repeated/later interruptions, normal completion without a forced retry loop, and automatic runs retaining normal backoff.
+
+The local debug build, **86 tests (0 failures, 0 skipped)**, and lint passed under JDK 17/SDK 35; lint has 0 errors and 6 existing warnings. Hosted execution is recorded by PR #2's checks for each push.
+
+The new tests invoke the real sync coordinator with controlled interruption callbacks and inspect persisted track/queue behavior plus Robolectric job scheduling. Spotify is disconnected so metadata access fails locally, and audio recovery uses a local signature fixture. They do not perform provider HTTP, Android process kills, physical power-loss tests, native JobScheduler callbacks, or audio decoding. Preference writes retain normal `apply()` durability limits. Existing batch limits and per-track checkpoint semantics are unchanged and remain a separate backlog item.
+
+## Multi-batch manual retries — 2026-11-15
+
+`ForcedSyncBatchTest` adds eight scenarios on API 26 and API 35 (16 cases). Before the fix, 10 cases failed: forced retries beyond the 30-track/six-minute limits were no longer eligible for continuation, and interruption could cause an earlier failed attempt to bypass its new backoff again.
+
+The fix releases existing backoff once at manual-request preparation, without resetting attempt counts, statuses, inactive songs, or unresolved matches. Remaining work is persisted as due in SQLite and is consumed through the normal queue across later batches. A preparation marker distinguishes resume from a new explicit request and supports older in-flight state without that marker. This keeps newly assigned failure backoff intact and leaves the batch limits unchanged.
+
+The scenarios cover 31 tracks, 61 tracks over three batches, a simulated six-minute cutoff, continuation after store reopen, interrupted-pass failure preservation, a new manual request, unmatched/inactive rows, and legacy in-flight state. The full local debug build, **102 tests (0 failures, 0 skipped)**, and lint passed using JDK 17/SDK 35 (0 errors, 6 existing warnings). Hosted verification is tracked on PR #2 for the pushed commit.
+
+The tests use signature-valid local files, a disconnected Spotify account, controlled interruption callbacks, and a Robolectric clock. They do not validate native JobScheduler execution, true process termination or power loss, live provider traffic, or decoding. SQLite/preference writes are not a cross-store crash transaction; existing apply() durability limits remain. Metadata-refresh continuation is a separate open backlog item.
+
+
+## Playlist refresh continuation — 2026-11-16
+
+`PlaylistRefreshRecoveryTest` adds eight scenarios on API 26 and API 35 (16 cases). The baseline produced 12 failures: a metadata deadline could acknowledge an unfinished manual request, continuation could replay recently attempted sources, and automatic metadata-only work could return without requesting a further batch.
+
+Tests cover one and repeated six-minute cutoffs, cooperative interruption, a fresh manual request, removal of an unvisited source, legacy in-flight preferences, automatic due refreshes, and adding an unchecked source between batches. Recently attempted sources receive explicit recent database timestamp markers to detect replay deterministically. Due-source fixtures explicitly backdate database timestamps; the Robolectric elapsed clock controls only the batch deadline, not production wall-clock freshness.
+
+The fix persists remaining forced playlist keys and checkpoints each completed/recorded-error metadata attempt. Unvisited targets survive normal deadline returns and cooperative interruption. Automatic due work also reports continuation after a deadline. The full local debug build, **118 tests (0 failures, 0 errors, 0 skipped)**, and lint passed with JDK 17/SDK 35 (0 errors, 6 existing warnings). Hosted results are tracked on PR #2 for each push.
+
+The Spotify account is disconnected, so these metadata attempts fail locally before any HTTP request; successful provider responses are not validated here. No new emulator, native JobScheduler, OS-kill, WAL/power-loss, or live-provider test was run. Preference persistence retains asynchronous apply() durability limits and is not atomic with SQLite writes.
+
+
+## Native cancellation and process restart — 2026-11-17
+
+The new [host-driven smoke procedure](docs/testing/native-sync-smoke.md) ran successfully on a fresh Android 15/API 35 x86_64 software emulator with Offline 0.1.4. It uses platform instrumentation with no new dependency. The test APK is now compiled in CI; hosted CI does **not** execute this emulator procedure.
+
+The native baseline `c0ee06c` exposed a real cancellation bug: JobScheduler showed job 1102 executing, then reported it stopped, yet releasing its executor consumed the remaining metadata targets. Start/stop receive different parcelled JobParameters instances; the object-keyed worker map failed to find and cancel the stopped task. The fix uses job IDs and a per-run identity, so late completion cannot remove a replacement run. Five lifecycle scenarios on API 26/35 add 10 JVM cases; the debug app/test APK builds, **128 tests (0 failures/errors/skips)**, and lint passed with JDK 17/SDK 35 (0 errors, 6 existing warnings). actionlint 1.7.12 passed.
+
+| Native check | Result |
+| --- | --- |
+| Interrupt after one of three metadata attempts, flush preferences, SIGKILL with SQLite open | Passed: a new process retained the exact two-target cursor and first-source timestamp |
+| Start real job 1102 with its worker queued, timeout through Android's shell service, release on eligible Wi-Fi | Passed: cancelled worker made no progress; pending checkpoint retained |
+| Resume through native JobService | Passed: remaining sources attempted, completed intent cleared, first source not replayed |
+| Launch Sources, assert all three fixtures, tap Logs and assert diagnostics | Passed; screenshots and UI XML captured |
+| Offline crash buffer | No Offline crash entries; the intentional SIGKILL is reported as process termination by instrumentation |
+
+Evidence: [native run summary](docs/testing/android15-native-sync.txt), [Sources screenshot](docs/testing/android15-native-sync-sources.png), and [Logs screenshot](docs/testing/android15-native-sync-log.png). Full local command/job/UI logs were retained under `/workspace/tooling/native-smoke-2026-11-17-verified` in the execution environment.
+
+Harness development preserved failed attempts: package absence initially needed different exit handling; Android 15 reports timeout as “Stopping job”; historical connectivity dump entries were not a valid readiness signal. The final harness connects the synthetic AndroidWifi AP and waits for Offline's own eligibility check. Earlier software-VM startup also left a System UI ANR dialog over Sources. Selecting Wait recovered the screen; the final full run completed without that obstruction. No logs were suppressed. This software-emulated environment is unsuitable for performance conclusions.
+
+Fixtures contain empty Spotify playlists without an account, so metadata fails before provider HTTP. The checkpoint is explicitly flushed before SIGKILL; this does not establish durability in apply() crash windows, arbitrary WAL corruption or power loss. Cancellation of a queued worker does not prove cancellation of an already blocked socket or active database write. Live provider access, decoding, active-transfer network transitions, and physical-device behavior remain open. The script refuses existing app installations and preserves its fixture data; only fixtures created in this disposable VM were reset during harness development.
+
+
+## Loopback HTTP/TLS transport — 2026-11-18
+
+`AudioTransportTest` adds ten JVM cases using real loopback ServerSocket/SSLServerSocket peers and HttpURLConnection/HttpsURLConnection rather than response doubles. The existing AudioDownload connection-factory seam maps a normally validated logical media URL to the local fixture. Production code and dependencies are unchanged.
+
+Coverage includes exact fixed-length publication, unknown-length chunked publication/progress, a known-length premature socket close preserving an existing file, a stalled body raising SocketTimeoutException and leaving no partial file followed by a successful retry, cooperative eligibility loss after the header, a missing terminating chunk, a short header, trusted localhost TLS success, default-trust certificate rejection, and hostname rejection even when the fixture certificate is trusted. No production failure was reproduced by these cases.
+
+The public localhost test key and regeneration instructions live in `app/src/test/resources`. Positive trust is installed on the individual test connection, with the standard hostname verifier retained. Default-trust rejection asserts SSLHandshakeException with a PKIX path-validation message. Hostname rejection asserts IOException with both the rejected IP address and a hostname/SAN mismatch message, covering the distinct JSSE and HttpsURLConnection rejection paths. The fixture explicitly uses JDK SunJSSE, independently of Robolectric's provider registration. No global trust, production HTTPS/media-host policy, or provider credential changes are involved. Explicit Proxy.NO_PROXY keeps fixture requests on loopback despite host proxy settings; listeners use ephemeral ports and bounded waits.
+
+The required debug app and instrumentation APK builds, **138 tests (128 unit/Robolectric + 10 transport, 0 failures/errors/skips)**, and lint passed under JDK 17/SDK 35 (0 errors, 6 existing warnings). APK archive inspection confirmed the loopback certificate is absent from both APKs. actionlint passed for the updated report upload paths. Hosted results are tracked by PR #2 checks.
+
+Full integration runs exposed Robolectric's global Conscrypt provider changes affecting reflective access and supporting elliptic-curve initialization even with a SunJSSE SSLContext. The transport tests now execute in a dedicated `testDebugTransport` Test-task JVM. The documented `testDebugUnitTest` task depends on it, so normal validation still runs both suites. CI artifacts include both reports; standalone transport testing uses `./gradlew :app:testDebugTransport`. The standalone task graph includes compilation/resources. No global providers, module-access flags, trust stores, or production TLS configuration were changed. Initial hosted CI also exposed an overly strict hostname exception subclass assertion; the test now requires either JDK rejection path to identify the specific mismatched host. This is host JDK transport coverage, not Android HttpURLConnection/TrustManager behavior, a native network transition, successful provider traffic, decoding, or power-loss evidence. The eligibility callback is controlled by the test; it does not physically disconnect Wi-Fi. The stalled-body test uses a 250 ms read timeout, while production retains its existing 15-second read timeout. Already blocked operations are still bounded by that timeout rather than guaranteed to stop immediately on interruption. Android instrumentation transport coverage is the next prerequisite; no new VM run was performed for this increment.
+
+
+## Android active-transfer TLS and recovery — 2026-11-19
+
+The [native transport procedure](docs/testing/native-transport-smoke.md) exercises real Android HttpsURLConnection/SSLServerSocket traffic with connection-specific trust for the existing public test certificate. Six checks passed on the API 35 software emulator: exact TLS publication, default-trust rejection, hostname rejection despite trusting the certificate, real Wi-Fi eligibility loss during a paused body read, reconnection/retry, and interruption of a reader observed in `java.net.SocketInputStream.socketRead0`.
+
+The Wi-Fi case preserves an exact existing complete file and deletes partial output before retrying successfully. The interrupted reader exited with `SocketTimeoutException` under the fixture's five-second read timeout, terminated, removed partial output, and preserved the old complete file. This demonstrates bounded cleanup for the tested platform path, not immediate cancellation. Production keeps its 15-second read timeout.
+
+An initial attempt and cold repeats failed before body readiness. A 30-second diagnostic captured the client in BouncyCastle PKCS5S2 key derivation inside PKCS12KeyStoreSpi.engineLoad/KeyStore.load: fixture credential setup was still running after the peer accept deadline. The client later timed out during the TLS handshake. The corrected fixture loads the public key and prepares separate fixture-trust/default-trust TLS contexts once, before starting peers or timed body reads. It retains bounded readiness diagnostics without changing production socket timeouts. Failed diagnostics are retained under `/workspace/tooling/native-active-2026-11-19-cold2`; earlier passing warmed-VM output and UI evidence are under `/workspace/tooling/native-active-2026-11-19-2`. The final corrected procedure passed all six checks after another cold boot, with no delayed-header diagnostic, under `/workspace/tooling/native-active-2026-11-19-final`. Its native output and current APK digests are in the linked summary.
+
+After the passing transport run, Sources and Logs were tapped and their fixture titles/diagnostics asserted. Queued boot-time Process system and System UI ANR dialogs required selecting Wait; original dialog screenshots were preserved. No Offline ANR was dismissed and no Offline crash was recorded. This software VM is not performance evidence. The emulator also returned a host-side segmentation fault on the console-requested shutdown; this is distinct from the app crash buffer.
+
+Evidence: [native output and APK digests](docs/testing/android15-active-transfer.txt), [Sources](docs/testing/android15-active-transfer-sources.png), and [Logs](docs/testing/android15-active-transfer-log.png). Debug app/native-test APK builds, **138 host cases (128 unit/Robolectric + 10 JDK transport; 0 failures/errors/skips)**, and lint passed with JDK 17/SDK 35 (0 errors, 6 existing warnings). The six native checks are additional procedure assertions, not JUnit cases. CI compiles the native test APK but does not run a VM.
+
+The certificate is now intentionally shared into instrumentation assets; archive inspection confirms it remains absent from the main application APK. Native TLS uses Android's default providers and a per-connection trust manager; no production provider/trust/hostname policy or credential changes were made. Fixture downloads remain in unique app cache directories; existing app data/library are retained by in-place APK updates.
+
+Wi-Fi is actually toggled, but TLS packets remain on loopback and are not bound to the Wi-Fi interface. A real eligibility callback detects the loss before the peer releases the remaining body. This is direct AudioDownload testing, not a native JobService/coordinator transfer or a physically severed network-bound socket. Captured-network identity changes, queue/index integration, live providers, media decoding, process death during writes, and power-loss durability remain unverified. No new production bug was reproduced in the passing native cases.

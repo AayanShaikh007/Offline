@@ -299,6 +299,7 @@ public final class PlaybackService extends Service {
 
     private void stop() {
         releasePlayer();
+        error = "";
         playWhenReady = false;
         resumeOnFocus = false;
         audio.abandonAudioFocusRequest(focus);

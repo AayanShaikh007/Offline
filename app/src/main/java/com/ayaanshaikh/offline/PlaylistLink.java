@@ -9,6 +9,7 @@ record PlaylistLink(String source, String id) {
     static final String SPOTIFY = "spotify";
 
     static PlaylistLink parse(String input) {
+        if (input == null) throw new IllegalArgumentException("Paste a Spotify or public YouTube playlist URL.");
         try {
             URI uri = URI.create(input.trim());
             String host = uri.getHost();
@@ -37,6 +38,8 @@ record PlaylistLink(String source, String id) {
     }
 
     static String videoId(String input) {
+        if (input == null) return null;
+        input = input.trim();
         try {
             if (input.matches("[A-Za-z0-9_-]{11}")) return input;
             URI uri = URI.create(input.trim());
@@ -45,14 +48,17 @@ record PlaylistLink(String source, String id) {
             String id = null;
             if (uri.getHost().equalsIgnoreCase("youtu.be")) {
                 id = uri.getPath().substring(1);
+            } else if (isYouTube(uri.getHost())
+                    && uri.getPath().matches("/(?:shorts|live|embed)/[A-Za-z0-9_-]{11}/?")) {
+                id = uri.getPath().split("/")[2];
             } else if (isYouTube(uri.getHost()) && "/watch".equals(uri.getPath())
                     && uri.getRawQuery() != null) {
                 for (String field : uri.getRawQuery().split("&")) {
-                    if (field.startsWith("v=")) id = field.substring(2);
+                    if (field.startsWith("v=")) id = URLDecoder.decode(field.substring(2), "UTF-8");
                 }
             }
             return id != null && id.matches("[A-Za-z0-9_-]{11}") ? id : null;
-        } catch (IllegalArgumentException | IndexOutOfBoundsException ignored) {
+        } catch (IllegalArgumentException | IndexOutOfBoundsException | UnsupportedEncodingException ignored) {
             return null;
         }
     }
