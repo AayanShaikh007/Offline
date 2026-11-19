@@ -34,6 +34,7 @@ public final class NativeSyncSmoke extends Instrumentation {
                 case "inspect" -> verifyCheckpoint();
                 case "block" -> blockWorker();
                 case "resumed" -> verifyResumed();
+                case "transport" -> new NativeAudioTransport(this).run();
                 default -> throw new AssertionError("Unknown smoke stage: " + stage);
             }
             var result = new Bundle();
@@ -41,7 +42,7 @@ public final class NativeSyncSmoke extends Instrumentation {
             finish(Activity.RESULT_OK, result);
         } catch (Throwable failure) {
             var result = new Bundle();
-            result.putString("stream", "FAIL " + stage + ": " + failure + "\n");
+            result.putString("stream", "FAIL " + stage + ": " + android.util.Log.getStackTraceString(failure) + "\n");
             finish(Activity.RESULT_CANCELED, result);
         }
     }

@@ -20,6 +20,8 @@ android {
         coreLibraryDesugaringEnabled true
     }
     testOptions { unitTests.includeAndroidResources = true }
+    // Public loopback certificate is shared with JVM tests, in the test APK only.
+    sourceSets.androidTest.assets.srcDir 'src/test/resources'
 }
 
 dependencies {
