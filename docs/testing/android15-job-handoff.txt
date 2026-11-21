@@ -1,0 +1,57 @@
+Offline cancellation handoff verification — 2026-11-21
+Local host validation: 148 cases = 138 unit/Robolectric + 10 JDK transport; no failures/errors/skips.
+Baseline reproduction: four failing publication/indexing cases on API 26/35 before post-transfer cancellation check. Controlled transfer injection only; no provider requests.
+Baseline log: /workspace/tooling/active-job-baseline.log
+Final validation log: /workspace/tooling/active-job-validation.log
+
+Native API 35 component regression (not the controlled handoff test):
+PASS: native TLS save, default trust rejection, hostname rejection, Wi-Fi eligibility loss/cleanup, reconnection/retry, interrupted blocked reader/cleanup.
+TLS travels over loopback, not the Wi-Fi interface. No native JobService transfer, provider access, decoding, immediate production socket cancellation, or power-loss claim.
+
+INSTRUMENTATION_STATUS: stream=TLS_SAVE_PASS
+
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: stream=TLS_TRUST_REJECTION_PASS
+
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: stream=TLS_HOSTNAME_REJECTION_PASS
+
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: stream=BODY_WAITING_FOR_WIFI_LOSS
+
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: stream=WIFI_LOSS_PASS_RECONNECT
+
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: stream=WIFI_RETRY_PASS
+
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: stream=READER_BLOCKED java.net.SocketInputStream.socketRead0
+
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: stream=ACTIVE_INTERRUPT_PASS SocketTimeoutException
+
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: stream=TRANSPORT_COMPLETE
+
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_RESULT: stream=PASS transport
+
+INSTRUMENTATION_CODE: -1
+
+PASS: tapped Sources and Logs, asserted fixture titles and diagnostics; screenshots/XML preserved.
+
+Selected Wait on Android system ANR; screenshot/XML retained. No Offline ANR dismissed.
+
+Native default-constructor/service dispatch:
+Running job [FORCED]
+        -1m21s583ms START-P: #u0a158/1101 com.ayaanshaikh.offline/.SyncJob
+        -1m16s634ms  STOP-P: #u0a158/1101 com.ayaanshaikh.offline/.SyncJob app called jobFinished
+           -1s285ms START-P: #u0a158/1101 com.ayaanshaikh.offline/.SyncJob
+             -607ms  STOP-P: #u0a158/1101 com.ayaanshaikh.offline/.SyncJob app called jobFinished
+Periodic dispatch ran without a transfer, under the existing network constraints. Active publication/index tests are Robolectric-controlled, not OS socket/job integration.
+SHA256 app/build/outputs/apk/debug/app-debug.apk: 5ce54127e2d829bdfb419871682ae7f77a9e94ef9df4e972d9b6e8f857eb6cac
+SHA256 app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk: ca73458b5a08d58871b67f7187b0fadf90e1f071821657f6c88d475bbb2d3eb8
+
+Full native logs/screenshots/XML: /workspace/tooling/active-job-native-2026-11-21
+No Offline ANR dismissed or Offline crash recorded. Software-emulator functional evidence, not performance evidence. Live providers, decoding, interface-bound active jobs, and power-loss durability remain unverified.

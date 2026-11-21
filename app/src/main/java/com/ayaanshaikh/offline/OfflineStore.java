@@ -7,6 +7,8 @@ import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -189,9 +191,29 @@ final class OfflineStore extends SQLiteOpenHelper {
                 + "WHERE status<>'match needed'");
     }
 
+    void releaseRetryBackoff() {
+        getWritableDatabase().execSQL("UPDATE songs SET retry_at=0 "
+                + "WHERE active=1 AND status<>'match needed' AND retry_at>0");
+    }
+
     File file(String name) { return new File(audioDir, name); }
     void ensureAudioDir() throws java.io.IOException {
         if (!audioDir.isDirectory() && !audioDir.mkdirs()) throw new java.io.IOException("Audio folder unavailable");
+    }
+
+    // A process may stop after the file is published but before its audio row is saved.
+    String findPublishedAudio(String video) {
+        for (String extension : List.of("m4a", "webm")) {
+            File complete = file(video + "." + extension);
+            if (!complete.isFile()) continue;
+            try (var input = new FileInputStream(complete)) {
+                AudioDownload.readHeader(input, complete.getName());
+                return complete.getName();
+            } catch (IOException ignored) {
+                // Partial/invalid files must not be treated as published audio.
+            }
+        }
+        return null;
     }
 
     boolean hasAudio(String video) {

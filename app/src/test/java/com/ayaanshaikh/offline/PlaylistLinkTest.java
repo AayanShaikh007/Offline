@@ -6,6 +6,19 @@ import static org.junit.Assert.assertThrows;
 import org.junit.Test;
 
 public class PlaylistLinkTest {
+    @Test public void emptyOrMissingInputHasPredictableValidation() {
+        assertThrows(IllegalArgumentException.class, () -> PlaylistLink.parse(null));
+        assertThrows(IllegalArgumentException.class, () -> PlaylistLink.parse("  "));
+        assertNull(PlaylistLink.videoId(null));
+        assertNull(PlaylistLink.videoId(""));
+        assertEquals("abcdefghijk", PlaylistLink.videoId("  abcdefghijk  "));
+    }
+
+    @Test public void sharedShortsAndLiveLinksCanBeMatched() {
+        assertEquals("abcdefghijk", PlaylistLink.videoId("https://www.youtube.com/shorts/abcdefghijk?si=share"));
+        assertEquals("abcdefghijk", PlaylistLink.videoId("https://www.youtube.com/live/abcdefghijk"));
+        assertEquals("abcdefghijk", PlaylistLink.videoId("https://www.youtube.com/watch?v=%61bcdefghijk"));
+    }
     private static final String PLAYLIST = "PL0123456789abc";
     private static final String SPOTIFY = "1a2b3c4d5e6f7g8h9i0j12";
 

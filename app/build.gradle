@@ -12,12 +12,16 @@ android {
         targetSdk 35
         versionCode 5
         versionName '0.1.4'
+        testInstrumentationRunner 'com.ayaanshaikh.offline.NativeSyncSmoke'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
         coreLibraryDesugaringEnabled true
     }
+    testOptions { unitTests.includeAndroidResources = true }
+    // Public loopback certificate is shared with JVM tests, in the test APK only.
+    sourceSets.androidTest.assets.srcDir 'src/test/resources'
 }
 
 dependencies {
@@ -26,4 +30,21 @@ dependencies {
     implementation 'org.jsoup:jsoup:1.24.1'
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
+}
+
+// Robolectric changes process-wide crypto providers. Keep real JDK transport tests
+// in their own worker, while retaining the documented unit-test entry point.
+afterEvaluate {
+    tasks.withType(Test).findAll { it.name.endsWith('UnitTest') }.each { unit ->
+        def transport = tasks.register(unit.name.replace('UnitTest', 'Transport'), Test) {
+            group = 'verification'
+            description = 'Runs loopback download transport tests in an isolated JVM.'
+            testClassesDirs = unit.testClassesDirs
+            classpath = unit.classpath
+            include '**/AudioTransportTest.class'
+        }
+        unit.exclude '**/AudioTransportTest.class'
+        unit.dependsOn transport
+    }
 }

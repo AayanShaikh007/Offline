@@ -16,13 +16,27 @@ import android.os.Looper;
 import android.os.SystemClock;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 public final class SyncJob extends JobService {
+    interface Transfer {
+        String save(String video, OfflineStore store, Runnable checkNetwork, AudioDownload.Progress progress)
+                throws Exception;
+    }
+
+    private final Transfer transfer;
+
+    public SyncJob() { this(new YouTubeSource()::save); }
+
+    SyncJob(Transfer transfer) { this.transfer = java.util.Objects.requireNonNull(transfer); }
+
     static final long HOUR = 3_600_000L;
     private static final int PERIODIC = 1101;
     private static final int IMMEDIATE = 1102;
@@ -30,7 +44,12 @@ public final class SyncJob extends JobService {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final AtomicBoolean FOREGROUND_PENDING = new AtomicBoolean();
     private static final Object FORCE_LOCK = new Object();
-    private final Map<JobParameters, Future<?>> jobs = new HashMap<>();
+    private final Map<Integer, JobRun> jobs = new HashMap<>();
+    private static final class JobRun {
+        final JobParameters params;
+        Future<?> work;
+        JobRun(JobParameters params) { this.params = params; }
+    }
     private static volatile boolean running;
     private static volatile String activity = "";
     private static volatile DownloadProgress downloadProgress;
@@ -124,14 +143,67 @@ public final class SyncJob extends JobService {
         JobScheduler scheduler = context.getSystemService(JobScheduler.class);
         scheduler.cancel(PERIODIC);
         scheduler.cancel(IMMEDIATE);
-        takeForce(context);
+        synchronized (FORCE_LOCK) {
+            flags(context).edit().remove("force").remove("forceInFlight").remove("forcePrepared")
+                    .remove("forceRefreshes").apply();
+        }
     }
 
-    private static boolean takeForce(Context context) {
+    private static boolean forcePending(Context context) {
         synchronized (FORCE_LOCK) {
-            boolean force = flags(context).getBoolean("force", false);
-            flags(context).edit().remove("force").apply();
+            var state = flags(context);
+            return state.getBoolean("force", false) || state.getBoolean("forceInFlight", false);
+        }
+    }
+
+    private static boolean beginForce(Context context) {
+        synchronized (FORCE_LOCK) {
+            var state = flags(context);
+            boolean pending = state.getBoolean("force", false);
+            boolean force = pending || state.getBoolean("forceInFlight", false);
+            if (force) {
+                // Release once per request; later failures must retain their new backoff.
+                // Missing preparation state also covers in-flight requests from older builds.
+                if (pending || !state.getBoolean("forcePrepared", false)) {
+                    OfflineStore.get(context).releaseRetryBackoff();
+                }
+                var edit = state.edit().remove("force").putBoolean("forceInFlight", true)
+                        .putBoolean("forcePrepared", true);
+                if (pending || !state.contains("forceRefreshes")) {
+                    edit.putStringSet("forceRefreshes", OfflineStore.get(context).playlists().stream()
+                            .map(playlist -> playlist.link().key()).collect(Collectors.toSet()));
+                }
+                edit.apply();
+            }
             return force;
+        }
+    }
+
+    private static void finishForce(Context context) {
+        synchronized (FORCE_LOCK) {
+            var state = flags(context);
+            if (state.getBoolean("forceInFlight", false)
+                    && !state.getStringSet("forceRefreshes", Set.of()).isEmpty()) return;
+            // A new tap during this run stays pending for the next run.
+            state.edit().remove("forceInFlight").remove("forcePrepared").remove("forceRefreshes").apply();
+        }
+    }
+
+    private static Set<String> pendingRefreshes(Context context) {
+        synchronized (FORCE_LOCK) {
+            var state = flags(context);
+            return state.getBoolean("forceInFlight", false)
+                    ? new HashSet<>(state.getStringSet("forceRefreshes", Set.of())) : new HashSet<>();
+        }
+    }
+
+    private static void saveRefreshes(Context context, Set<String> remaining) {
+        synchronized (FORCE_LOCK) {
+            var state = flags(context);
+            // Do not resurrect progress after the last source was removed.
+            if (state.getBoolean("forceInFlight", false)) {
+                state.edit().putStringSet("forceRefreshes", new HashSet<>(remaining)).apply();
+            }
         }
     }
 
@@ -139,6 +211,10 @@ public final class SyncJob extends JobService {
         var playlists = OfflineStore.get(context).playlists();
         if (playlists.isEmpty()) return;
         schedule(context);
+        if (forcePending(context)) {
+            request(context, false);
+            return;
+        }
         long now = System.currentTimeMillis();
         for (var playlist : playlists) {
             if (playlist.checked() == 0 || now - playlist.checked() >= HOUR) {
@@ -162,7 +238,11 @@ public final class SyncJob extends JobService {
     }
 
     @Override public boolean onStartJob(JobParameters params) {
-        Future<?> work = WORK.submit(() -> {
+        // Start/stop callbacks receive separately parcelled JobParameters objects.
+        var run = new JobRun(params);
+        var previous = jobs.put(params.getJobId(), run);
+        if (previous != null) previous.work.cancel(true);
+        run.work = WORK.submit(() -> {
             boolean retry = false;
             boolean more = false;
             try {
@@ -170,7 +250,7 @@ public final class SyncJob extends JobService {
                 Network network = Build.VERSION.SDK_INT >= 28 ? params.getNetwork() : manager.getActiveNetwork();
                 if (!usable(manager, network)) network = manager.getActiveNetwork();
                 if (usable(manager, network)) {
-                    more = runOnNetwork(this, manager, network);
+                    more = runOnNetwork(this, manager, network, transfer);
                 } else {
                     retry = params.getJobId() == IMMEDIATE;
                 }
@@ -182,40 +262,45 @@ public final class SyncJob extends JobService {
             } finally {
                 boolean reschedule = retry;
                 boolean remaining = more;
-                MAIN.post(() -> complete(params, reschedule, remaining));
+                MAIN.post(() -> complete(run, reschedule, remaining));
             }
         });
-        jobs.put(params, work);
         return true;
     }
 
-    private void complete(JobParameters params, boolean retry, boolean more) {
-        if (jobs.remove(params) == null) return;
-        jobFinished(params, retry);
+    private void complete(JobRun run, boolean retry, boolean more) {
+        // A stopped run's late callback must not acknowledge a newer run of the same ID.
+        if (!jobs.remove(run.params.getJobId(), run)) return;
+        jobFinished(run.params, retry);
         if (!retry) MAIN.postDelayed(() -> scheduleRemaining(this, more), 400);
     }
 
     private static void scheduleRemaining(Context context, boolean more) {
         var playlists = OfflineStore.get(context).playlists();
         if (playlists.isEmpty()) return;
-        boolean dueNow = flags(context).getBoolean("force", false) || playlists.stream().anyMatch(p -> p.checked() == 0);
+        boolean dueNow = forcePending(context) || playlists.stream().anyMatch(p -> p.checked() == 0);
         if (dueNow || more) enqueue(context, dueNow ? 0 : 60_000);
     }
 
     @Override public boolean onStopJob(JobParameters params) {
-        Future<?> work = jobs.remove(params);
-        if (work != null) work.cancel(true);
+        JobRun run = jobs.remove(params.getJobId());
+        if (run != null) run.work.cancel(true);
         return params.getJobId() == IMMEDIATE;
     }
 
     private static boolean runOnNetwork(Context context, ConnectivityManager manager, Network network) {
+        return runOnNetwork(context, manager, network, new YouTubeSource()::save);
+    }
+
+    private static boolean runOnNetwork(Context context, ConnectivityManager manager, Network network,
+                                        Transfer transfer) {
         activity = "starting sync";
         running = true;
         Http.NETWORK.set(network);
         try {
             return runSync(context, () -> {
                 if (Thread.currentThread().isInterrupted() || !usable(manager, network)) throw new InterruptedSync();
-            });
+            }, transfer);
         } finally {
             Http.NETWORK.remove();
             running = false;
@@ -224,19 +309,38 @@ public final class SyncJob extends JobService {
     }
 
     private static boolean runSync(Context context, Runnable checkNetwork) {
+        return runSync(context, checkNetwork, new YouTubeSource()::save);
+    }
+
+    private static boolean runSync(Context context, Runnable checkNetwork, Transfer transfer) {
+        boolean force = beginForce(context);
+        // Only acknowledge a completed batch. Exceptions leave the request recoverable.
+        boolean more = runSync(context, checkNetwork, force, transfer);
+        finishForce(context);
+        return more;
+    }
+
+    private static boolean runSync(Context context, Runnable checkNetwork, boolean force, Transfer transfer) {
         OfflineStore store = OfflineStore.get(context);
-        boolean force = takeForce(context);
         var playlists = store.playlists();
+        var refreshes = pendingRefreshes(context);
+        refreshes.retainAll(playlists.stream().map(playlist -> playlist.link().key()).collect(Collectors.toSet()));
+        saveRefreshes(context, refreshes);
         if (playlists.isEmpty()) return false;
         var youtube = new YouTubeSource();
         var spotify = new SpotifySource(context);
         long end = SystemClock.elapsedRealtime() + 6 * 60_000L;
         store.reconcileAudio();
         boolean refreshed = false;
+        boolean moreRefreshes = false;
         for (var playlist : playlists) {
             checkNetwork.run();
-            if (!force && System.currentTimeMillis() - playlist.checked() < HOUR - 15 * 60_000L) continue;
-            if (SystemClock.elapsedRealtime() >= end) break;
+            boolean forced = force && refreshes.contains(playlist.link().key());
+            if (!forced && System.currentTimeMillis() - playlist.checked() < HOUR - 15 * 60_000L) continue;
+            if (SystemClock.elapsedRealtime() >= end) {
+                moreRefreshes = true;
+                break;
+            }
             PlaylistLink link = playlist.link();
             activity = "reading " + link.source() + " playlist";
             boolean fromSpotify = PlaylistLink.SPOTIFY.equals(link.source());
@@ -256,10 +360,11 @@ public final class SyncJob extends JobService {
                 store.playlistError(link, problem);
                 store.log(link.source() + " · " + problem);
             }
+            if (refreshes.remove(link.key())) saveRefreshes(context, refreshes);
         }
         int saved = 0;
         int attempted = 0;
-        for (var song : store.queue(force)) {
+        for (var song : store.queue(false)) {
             checkNetwork.run();
             if (SystemClock.elapsedRealtime() >= end || attempted >= 30) break;
             if (!store.isActive(song)) continue;
@@ -281,8 +386,10 @@ public final class SyncJob extends JobService {
                 if (store.hasAudio(video)) continue;
                 activity = "downloading audio";
                 downloadProgress = new DownloadProgress(song.title(), 0, -1);
-                String file = youtube.save(video, store, checkNetwork, (received, total) ->
+                String file = transfer.save(video, store, checkNetwork, (received, total) ->
                         downloadProgress = new DownloadProgress(song.title(), received, total));
+                // Publication may finish while Android stops the job or its network changes.
+                checkNetwork.run();
                 store.saved(song, video, file);
                 saved++;
             } catch (Exception e) {
@@ -296,7 +403,7 @@ public final class SyncJob extends JobService {
         if (refreshed || attempted > 0) {
             store.log("Sync finished · " + saved + " saved · " + attempted + " attempted");
         }
-        return !store.queue(false).isEmpty();
+        return moreRefreshes || !pendingRefreshes(context).isEmpty() || !store.queue(false).isEmpty();
     }
 
     private static String youtubeProblem(Exception error) {

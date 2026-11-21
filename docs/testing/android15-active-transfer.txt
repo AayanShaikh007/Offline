@@ -1,0 +1,60 @@
+Offline Android active-transfer verification — 2026-11-19
+API 35 x86_64, emulator 37.2.13, software emulation, Offline 0.1.4.
+Final cold-boot evidence: /workspace/tooling/native-active-2026-11-19-final
+Command: python3 scripts/native-transport-smoke.py --serial emulator-5554 --adb /workspace/tooling/android-sdk/platform-tools/adb --disposable-emulator --evidence /workspace/tooling/native-active-2026-11-19-final
+
+PASS: native TLS save, default trust rejection, hostname rejection, Wi-Fi eligibility loss/cleanup, reconnection/retry, interrupted blocked reader/cleanup.
+TLS travels over loopback, not the Wi-Fi interface. No native JobService transfer, provider access, decoding, immediate production socket cancellation, or power-loss claim.
+
+INSTRUMENTATION_STATUS: stream=TLS_SAVE_PASS
+
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: stream=TLS_TRUST_REJECTION_PASS
+
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: stream=TLS_HOSTNAME_REJECTION_PASS
+
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: stream=BODY_WAITING_FOR_WIFI_LOSS
+
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: stream=WIFI_LOSS_PASS_RECONNECT
+
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: stream=WIFI_RETRY_PASS
+
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: stream=READER_BLOCKED java.net.SocketInputStream.socketRead0
+
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: stream=ACTIVE_INTERRUPT_PASS SocketTimeoutException
+
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: stream=TRANSPORT_COMPLETE
+
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_RESULT: stream=PASS transport
+
+INSTRUMENTATION_CODE: -1
+
+Final cold run passed with no HEADER_DELAY_DIAGNOSTIC. Test TLS contexts were prepared before peers/timed reads.
+
+Earlier passing warmed-VM UI evidence: /workspace/tooling/native-active-2026-11-19-2
+PASS: tapped Sources and Logs, asserted fixture titles and diagnostics; screenshots/XML preserved.
+Two queued boot-time Process system/System UI ANR dialogs required Wait; original screenshots retained. No Offline ANR dismissed or Offline crash recorded. The emulator host returned SIGSEGV after console-requested shutdowns; no performance claim.
+SHA256 app/build/outputs/apk/debug/app-debug.apk: cba98a50512b2d7e33aca47bb118942c7acff4efb5756c31d6be1d269a5f9232
+Public test certificate present: False
+SHA256 app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk: ca73458b5a08d58871b67f7187b0fadf90e1f071821657f6c88d475bbb2d3eb8
+Public test certificate present: True
+
+Fixture failure diagnosis retained at /workspace/tooling/native-active-2026-11-19-cold2:
+HEADER_DELAY_DIAGNOSTIC
+native-network-loss-download RUNNABLE
+  com.android.org.bouncycastle.crypto.generators.PKCS5S2ParametersGenerator.generateDerivedKey
+  com.android.org.bouncycastle.jcajce.provider.keystore.pkcs12.PKCS12KeyStoreSpi.engineLoad
+  java.security.KeyStore.load
+  com.ayaanshaikh.offline.NativeAudioTransport.tls
+  com.ayaanshaikh.offline.NativeAudioTransport$Server.connection
+The public PKCS12 fixture was being derived on the timed client after its peer accept budget expired. A later handshake timed out. Loading/preparing separate fixture/default TLS contexts once before peers removed this setup race; socket timeouts and production code are unchanged.
+
+Scope: loopback Android TLS and actual Wi-Fi eligibility changes; direct AudioDownload calls. Not a native JobService transfer, severed interface-bound socket, provider success, decoding, immediate production cancellation, or crash/power-loss durability test.

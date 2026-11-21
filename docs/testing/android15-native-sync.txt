@@ -1,0 +1,44 @@
+Offline native sync smoke — 2026-11-17
+Android API 35, x86_64, emulator 37.2.13, software acceleration, 480x800.
+Production cancellation baseline: c0ee06c. Fixed source: this PR revision.
+Command: python3 scripts/native-sync-smoke.py --serial emulator-5554 --adb /workspace/tooling/android-sdk/platform-tools/adb --disposable-emulator --evidence /workspace/tooling/native-smoke-2026-11-17-verified
+
+PASS: durable checkpoint after SIGKILL; native queued-job timeout/cancellation; native job resume without replay; Sources and Log UI interaction.
+Fixtures use disconnected Spotify errors before HTTP. Not a socket cancellation, power-loss, apply() crash-window, live provider, or audio-decoding test.
+
+inspect:
+INSTRUMENTATION_RESULT: stream=PASS inspect
+
+INSTRUMENTATION_CODE: -1
+
+block:
+INSTRUMENTATION_STATUS: stream=BLOCK_READY
+
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: stream=WIFI_READY
+
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_RESULT: stream=PASS block
+
+INSTRUMENTATION_CODE: -1
+
+resumed:
+INSTRUMENTATION_RESULT: stream=PASS resumed
+
+INSTRUMENTATION_CODE: -1
+
+Native active job evidence:
+  Slot #0(ID=10740137): 796a0a0 #u0a158/1102 com.ayaanshaikh.offline/.SyncJob
+    Running for: +3s371ms, timeout at: +4m57s190ms
+    Remaining execution limits: [+9m56s629ms, +29m56s629ms]
+
+Native stop evidence:
+$ shell cmd jobscheduler timeout com.ayaanshaikh.offline 1102
+Stopping job: #u0a158/1102 com.ayaanshaikh.offline/.SyncJob
+
+SHA256 app/build/outputs/apk/debug/app-debug.apk: cba98a50512b2d7e33aca47bb118942c7acff4efb5756c31d6be1d269a5f9232
+SHA256 app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk: 231936722378211c9e00e7da545fb3b861fc176afad94d7303be1475e3d7dda3
+
+Full logs, job dumps, screenshots, and UI XML retained locally at the evidence path above.
+Boot-time System UI ANRs occurred during earlier attempts; the final full run passed without obstruction.
+No performance, successful provider HTTP, blocked-socket cancellation, apply() crash-window, or power-loss claim.
