@@ -26,6 +26,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 public final class SyncJob extends JobService {
+    interface Transfer {
+        String save(String video, OfflineStore store, Runnable checkNetwork, AudioDownload.Progress progress)
+                throws Exception;
+    }
+
+    private final Transfer transfer;
+
+    public SyncJob() { this(new YouTubeSource()::save); }
+
+    SyncJob(Transfer transfer) { this.transfer = java.util.Objects.requireNonNull(transfer); }
+
     static final long HOUR = 3_600_000L;
     private static final int PERIODIC = 1101;
     private static final int IMMEDIATE = 1102;
@@ -239,7 +250,7 @@ public final class SyncJob extends JobService {
                 Network network = Build.VERSION.SDK_INT >= 28 ? params.getNetwork() : manager.getActiveNetwork();
                 if (!usable(manager, network)) network = manager.getActiveNetwork();
                 if (usable(manager, network)) {
-                    more = runOnNetwork(this, manager, network);
+                    more = runOnNetwork(this, manager, network, transfer);
                 } else {
                     retry = params.getJobId() == IMMEDIATE;
                 }
@@ -278,13 +289,18 @@ public final class SyncJob extends JobService {
     }
 
     private static boolean runOnNetwork(Context context, ConnectivityManager manager, Network network) {
+        return runOnNetwork(context, manager, network, new YouTubeSource()::save);
+    }
+
+    private static boolean runOnNetwork(Context context, ConnectivityManager manager, Network network,
+                                        Transfer transfer) {
         activity = "starting sync";
         running = true;
         Http.NETWORK.set(network);
         try {
             return runSync(context, () -> {
                 if (Thread.currentThread().isInterrupted() || !usable(manager, network)) throw new InterruptedSync();
-            });
+            }, transfer);
         } finally {
             Http.NETWORK.remove();
             running = false;
@@ -293,14 +309,18 @@ public final class SyncJob extends JobService {
     }
 
     private static boolean runSync(Context context, Runnable checkNetwork) {
+        return runSync(context, checkNetwork, new YouTubeSource()::save);
+    }
+
+    private static boolean runSync(Context context, Runnable checkNetwork, Transfer transfer) {
         boolean force = beginForce(context);
         // Only acknowledge a completed batch. Exceptions leave the request recoverable.
-        boolean more = runSync(context, checkNetwork, force);
+        boolean more = runSync(context, checkNetwork, force, transfer);
         finishForce(context);
         return more;
     }
 
-    private static boolean runSync(Context context, Runnable checkNetwork, boolean force) {
+    private static boolean runSync(Context context, Runnable checkNetwork, boolean force, Transfer transfer) {
         OfflineStore store = OfflineStore.get(context);
         var playlists = store.playlists();
         var refreshes = pendingRefreshes(context);
@@ -366,8 +386,10 @@ public final class SyncJob extends JobService {
                 if (store.hasAudio(video)) continue;
                 activity = "downloading audio";
                 downloadProgress = new DownloadProgress(song.title(), 0, -1);
-                String file = youtube.save(video, store, checkNetwork, (received, total) ->
+                String file = transfer.save(video, store, checkNetwork, (received, total) ->
                         downloadProgress = new DownloadProgress(song.title(), received, total));
+                // Publication may finish while Android stops the job or its network changes.
+                checkNetwork.run();
                 store.saved(song, video, file);
                 saved++;
             } catch (Exception e) {
